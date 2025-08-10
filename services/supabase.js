@@ -1,4 +1,4 @@
--- 📌 Tab pou tout mesaj k ap vini nan WhatsApp
+//📌 Tab pou tout mesaj k ap vini nan WhatsApp
 create table if not exists messages (
     id uuid primary key default gen_random_uuid(),
     from_number text not null,
@@ -8,7 +8,7 @@ create table if not exists messages (
     status text default 'received'
 );
 
--- 📌 Tab pou tout repons bot la
+//📌 Tab pou tout repons bot la
 create table if not exists replies (
     id uuid primary key default gen_random_uuid(),
     to_number text not null,
@@ -18,7 +18,7 @@ create table if not exists replies (
     status text default 'sent'
 );
 
--- 📌 Tab pou swiv konvèsasyon
+// 📌 Tab pou swiv konvèsasyon
 create table if not exists conversations (
     id uuid primary key default gen_random_uuid(),
     user_number text not null,
@@ -27,7 +27,7 @@ create table if not exists conversations (
     messages jsonb
 );
 
--- 📌 Bucket pou fichye medya yo
+// 📌 Bucket pou fichye medya yo
 insert into storage.buckets (id, name, public) 
 values ('media', 'media', true)
 on conflict do nothing;
