@@ -1,28 +1,54 @@
 // services/whatsapp.js
 import axios from "axios";
 import FormData from "form-data";
+import mime from "mime-types";
 import { generateReply } from "./ai.js";
 import { saveMessage, saveReply, uploadMediaToStorage } from "./supabase.js";
-import mime from "mime-types";
 
-const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
-const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
+const PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const GRAPH = process.env.WHATSAPP_GRAPH_VERSION || "v17.0";
 const GRAPH_BASE = "https://graph.facebook.com";
-const GRAPH_VERSION = process.env.WHATSAPP_GRAPH_VERSION || "v17.0";
-
-if (!WHATSAPP_TOKEN) console.warn("WHATSAPP_ACCESS_TOKEN not set in env");
 
 export function initWhatsApp() {
-  console.log("📲 WhatsApp service initialized");
+  if (!TOKEN || !PHONE_ID) {
+    console.warn("WHATSAPP_ACCESS_TOKEN or PHONE_NUMBER_ID missing");
+  } else {
+    console.log("📲 WhatsApp service ready (phone id:", PHONE_ID, ")");
+  }
 }
 
-// send text
+// download media from WhatsApp media id
+export async function downloadMedia(mediaId) {
+  // get meta (url + mime)
+  const metaRes = await axios.get(`${GRAPH_BASE}/${GRAPH}/${mediaId}`, {
+    params: { fields: "mime_type,url" },
+    headers: { Authorization: `Bearer ${TOKEN}` }
+  });
+  const { url, mime_type } = metaRes.data;
+  const fileRes = await axios.get(url, {
+    responseType: "arraybuffer",
+    headers: { Authorization: `Bearer ${TOKEN}` }
+  });
+  return { buffer: Buffer.from(fileRes.data), mimeType: mime_type || fileRes.headers["content-type"] || "application/octet-stream" };
+}
+
+export async function uploadMediaToWhatsApp(buffer, filename, mimeType) {
+  const form = new FormData();
+  form.append("file", buffer, { filename, contentType: mimeType });
+  form.append("messaging_product", "whatsapp");
+  const res = await axios.post(`${GRAPH_BASE}/${GRAPH}/${PHONE_ID}/media`, form, {
+    headers: { Authorization: `Bearer ${TOKEN}`, ...form.getHeaders() },
+    maxBodyLength: Infinity
+  });
+  return res.data; // { id: "..." }
+}
+
 export async function sendTextMessage(to, text) {
   try {
-    const url = `${GRAPH_BASE}/${GRAPH_VERSION}/${PHONE_NUMBER_ID}/messages`;
-    const payload = { messaging_product: "whatsapp", to, type: "text", text: { body: text } };
-    const res = await axios.post(url, payload, {
-      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+    const payload = { messaging_product: "whatsapp", to, text: { body: text } };
+    const res = await axios.post(`${GRAPH_BASE}/${GRAPH}/${PHONE_ID}/messages`, payload, {
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" }
     });
     return res.data;
   } catch (err) {
@@ -31,14 +57,14 @@ export async function sendTextMessage(to, text) {
   }
 }
 
-// send media by media object id
 export async function sendMediaMessage(to, mediaObjectId, type = "image", caption) {
   try {
-    const url = `${GRAPH_BASE}/${GRAPH_VERSION}/${PHONE_NUMBER_ID}/messages`;
     const body = { messaging_product: "whatsapp", to, type };
     body[type] = { id: mediaObjectId };
     if (caption && (type === "image" || type === "video" || type === "document")) body[type].caption = caption;
-    const res = await axios.post(url, body, { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } });
+    const res = await axios.post(`${GRAPH_BASE}/${GRAPH}/${PHONE_ID}/messages`, body, {
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" }
+    });
     return res.data;
   } catch (err) {
     console.error("sendMediaMessage error:", err.response?.data || err.message);
@@ -46,38 +72,9 @@ export async function sendMediaMessage(to, mediaObjectId, type = "image", captio
   }
 }
 
-// download media bytes via media id returned in webhook
-export async function downloadMedia(mediaId) {
-  try {
-    // 1) get temporary url & mime
-    const metaUrl = `${GRAPH_BASE}/${GRAPH_VERSION}/${mediaId}`;
-    const meta = await axios.get(metaUrl, { params: { fields: "mime_type,url" }, headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } });
-    const { url, mime_type } = meta.data;
-    // 2) download bytes (must include auth)
-    const fileRes = await axios.get(url, { responseType: "arraybuffer", headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } });
-    return { buffer: Buffer.from(fileRes.data), mimeType: mime_type || fileRes.headers["content-type"] || "application/octet-stream" };
-  } catch (err) {
-    console.error("downloadMedia error:", err.response?.data || err.message);
-    throw err;
-  }
-}
-
-// upload to whatsapp to get media object id
-export async function uploadMediaToWhatsApp(buffer, filename, mimeType) {
-  try {
-    const url = `${GRAPH_BASE}/${GRAPH_VERSION}/${PHONE_NUMBER_ID}/media`;
-    const form = new FormData();
-    form.append("file", buffer, { filename, contentType: mimeType });
-    form.append("messaging_product", "whatsapp");
-    const res = await axios.post(url, form, { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}`, ...form.getHeaders() }, maxBodyLength: Infinity });
-    return res.data; // contains id
-  } catch (err) {
-    console.error("uploadMediaToWhatsApp error:", err.response?.data || err.message);
-    throw err;
-  }
-}
-
-// main webhook processor
+/**
+ * Main processor for the webhook body
+ */
 export async function handleIncomingWebhook(body) {
   try {
     if (!body?.entry) return;
@@ -86,68 +83,71 @@ export async function handleIncomingWebhook(body) {
       const value = change?.value;
       if (!value) continue;
 
-      // status updates
-      if (value.statuses) {
-        // optionally save statuses
-        continue;
-      }
+      // skip statuses
+      if (value.statuses) continue;
 
       const message = value.messages?.[0];
       if (!message) continue;
-      const from = message.from;
-      const type = message.type || "unknown";
 
-      // handle media messages
+      const from = message.from;
+      const type = message.type || "text";
+
+      // MEDIA
       if (["image", "video", "audio", "document"].includes(type)) {
         const mediaId = message[type]?.id;
         if (!mediaId) continue;
-        const { buffer, mimeType } = await downloadMedia(mediaId);
 
-        // store media in Supabase (optional)
+        const { buffer, mimeType } = await downloadMedia(mediaId);
+        // upload to Supabase storage (optional)
         let publicUrl = null;
         try {
           const ext = mime.extension(mimeType) || "bin";
           const path = `user_${from}/${Date.now()}.${ext}`;
           publicUrl = await uploadMediaToStorage(path, buffer, mimeType);
         } catch (err) {
-          console.warn("Supabase media upload failed:", err.message || err);
+          console.warn("Supabase upload failed:", err?.message || err);
         }
 
-        // re-upload to WhatsApp under your phone number
-        const filename = `${mediaId}.${mime.extension(mimeType) || "bin"}`;
-        const uploadRes = await uploadMediaToWhatsApp(buffer, filename, mimeType);
-        const newMediaId = uploadRes?.id;
+        // upload back to WhatsApp (so you can send it by object id)
+        let newMedia = null;
+        try {
+          const filename = `${mediaId}.${mime.extension(mimeType) || "bin"}`;
+          newMedia = await uploadMediaToWhatsApp(buffer, filename, mimeType);
+        } catch (err) {
+          console.warn("Upload to WhatsApp failed:", err?.message || err);
+        }
 
-        // save incoming message
-        await saveMessage(from, {
-          role: "user",
-          type,
-          text: message.text?.body || null,
+        // save incoming
+        await saveMessage({
+          from_number: from,
+          body: message.text?.body || null,
           media_url: publicUrl,
           media_mime: mimeType,
-          whatsapp_media_id: newMediaId || null,
-          raw: message
+          raw: JSON.stringify(message)
         });
 
-        // echo media back
-        if (newMediaId) {
-          await sendMediaMessage(from, newMediaId, type, "Men kopi fichye w te voye a.");
+        // echo back if possible
+        if (newMedia?.id) {
+          await sendMediaMessage(from, newMedia.id, type, "Men kopi fichye ou te voye a.");
         } else if (publicUrl) {
           await sendTextMessage(from, `Mwen sove fichye w la: ${publicUrl}`);
         }
         continue;
       }
 
-      // handle text (normal flow)
+      // TEXT
       const text = message.text?.body || "";
-      // save incoming message
-      await saveMessage(from, { role: "user", type: "text", text, raw: message });
+      await saveMessage({
+        from_number: from,
+        body: text,
+        media_url: null,
+        media_mime: null,
+        raw: JSON.stringify(message)
+      });
 
-      // get reply from AI (uses history inside generateReply)
       const reply = await generateReply(from, text);
       if (reply) {
-        // save reply and send
-        await saveReply(from, { role: "bot", type: "text", text: reply });
+        await saveReply({ to_number: from, body: reply });
         await sendTextMessage(from, reply);
       }
     }
