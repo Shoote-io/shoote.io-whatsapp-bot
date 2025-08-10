@@ -1,0 +1,49 @@
+import express from "express";
+import bodyParser from "body-parser";
+
+const app = express();
+app.use(bodyParser.json());
+
+// Port pou Render
+const PORT = process.env.PORT || 3000;
+
+// Verify token pou Meta webhook la
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "Elmidor-Group-Verify";
+
+// GET route pou verify webhook (Facebook / WhatsApp)
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode && token) {
+    if (mode === "subscribe" && token === VERIFY_TOKEN) {
+      console.log("Webhook verified successfully ✅");
+      res.status(200).send(challenge);
+    } else {
+      res.sendStatus(403);
+    }
+  }
+});
+
+// POST route pou resevwa mesaj ki sòti nan WhatsApp
+app.post("/webhook", (req, res) => {
+  try {
+    const body = req.body;
+    console.log("📩 Incoming message:", JSON.stringify(body, null, 2));
+
+    if (body.object) {
+      res.sendStatus(200);
+    } else {
+      res.sendStatus(404);
+    }
+  } catch (error) {
+    console.error("❌ Error handling webhook:", error);
+    res.sendStatus(500);
+  }
+});
+
+// Kòmanse server la
+app.listen(PORT, () => {
+  console.log(`🚀 Server is running on port ${PORT}`);
+});
