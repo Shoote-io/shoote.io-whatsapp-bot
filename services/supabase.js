@@ -1,12 +1,49 @@
+// services/supabase.js
 import { createClient } from "@supabase/supabase-js";
 
-// Konekte ak Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
+// Antre kle Supabase ou yo nan env
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 
-// Ranmase yon konvèsasyon
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY in environment variables");
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+/**
+ * Sove yon mesaj orijinal itilizatè a
+ */
+export async function saveMessage(conversationId, sender, content) {
+  const { data, error } = await supabase
+    .from("messages")
+    .insert([{ conversation_id: conversationId, sender, content }]);
+
+  if (error) {
+    console.error("Error saving message:", error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Sove yon repons bot la
+ */
+export async function saveReply(conversationId, reply) {
+  const { data, error } = await supabase
+    .from("replies")
+    .insert([{ conversation_id: conversationId, reply }]);
+
+  if (error) {
+    console.error("Error saving reply:", error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Rekipere konvèsasyon dapre ID
+ */
 export async function getConversation(conversationId) {
   const { data, error } = await supabase
     .from("conversations")
@@ -15,39 +52,26 @@ export async function getConversation(conversationId) {
     .single();
 
   if (error) {
-    console.error("❌ Erè getConversation:", error);
-    return null;
+    console.error("Error fetching conversation:", error);
+    throw error;
   }
   return data;
 }
 
-// Sove oswa mete ajou konvèsasyon
-export async function saveConversation(conversationData) {
-  const { data, error } = await supabase
-    .from("conversations")
-    .upsert(conversationData, { onConflict: ["id"] })
-    .select();
+/**
+ * Upload fichye medya nan Supabase Storage
+ */
+export async function uploadMediaToStorage(bucketName, filePath, fileContent, contentType) {
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .upload(filePath, fileContent, {
+      contentType,
+      upsert: true
+    });
 
   if (error) {
-    console.error("❌ Erè saveConversation:", error);
-    return null;
+    console.error("Error uploading media:", error);
+    throw error;
   }
   return data;
 }
-
-// Ranmase done itilizatè
-export async function getUser(phoneNumber) {
-  const { data, error } = await supabase
-    .from("users")
-    .select("*")
-    .eq("phone", phoneNumber)
-    .single();
-
-  if (error) {
-    console.error("❌ Erè getUser:", error);
-    return null;
-  }
-  return data;
-}
-
-export default supabase;
