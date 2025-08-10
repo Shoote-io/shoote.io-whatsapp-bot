@@ -1,33 +1,87 @@
-//📌 Tab pou tout mesaj k ap vini nan WhatsApp
-create table if not exists messages (
-    id uuid primary key default gen_random_uuid(),
-    from_number text not null,
-    body text,
-    media_url text,
-    timestamp timestamptz default now(),
-    status text default 'received'
-);
+// services/supabase.js
+import { createClient } from "@supabase/supabase-js";
 
-//📌 Tab pou tout repons bot la
-create table if not exists replies (
-    id uuid primary key default gen_random_uuid(),
-    to_number text not null,
-    body text,
-    media_url text,
-    timestamp timestamptz default now(),
-    status text default 'sent'
-);
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const BUCKET = process.env.SUPABASE_MEDIA_BUCKET || "media";
 
-// 📌 Tab pou swiv konvèsasyon
-create table if not exists conversations (
-    id uuid primary key default gen_random_uuid(),
-    user_number text not null,
-    started_at timestamptz default now(),
-    ended_at timestamptz,
-    messages jsonb
-);
+let supabase = null;
 
-// 📌 Bucket pou fichye medya yo
-insert into storage.buckets (id, name, public) 
-values ('media', 'media', true)
-on conflict do nothing;
+export async function initSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.warn("Supabase not configured (SUPABASE_URL or SUPABASE_KEY missing).");
+    return;
+  }
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  console.log("🗄️ Supabase initialized");
+}
+
+/**
+ * Save incoming message record
+ * message = { from_number, body, media_url, media_mime, raw }
+ */
+export async function saveMessage(message) {
+  if (!supabase) return null;
+  const { data, error } = await supabase.from("messages").insert([message]);
+  if (error) {
+    console.error("saveMessage error:", error);
+    return null;
+  }
+  return data;
+}
+
+/**
+ * Save bot reply record
+ * reply = { to_number, body, media_url }
+ */
+export async function saveReply(reply) {
+  if (!supabase) return null;
+  const { data, error } = await supabase.from("replies").insert([reply]);
+  if (error) {
+    console.error("saveReply error:", error);
+    return null;
+  }
+  return data;
+}
+
+/**
+ * Get last N messages for a user (by from_number)
+ * returns array oldest->newest
+ */
+export async function getConversation(userNumber, limit = 8) {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("messages")
+    .select("from_number, body, created_at, role")
+    .eq("from_number", userNumber)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("getConversation error:", error);
+    return [];
+  }
+  return data ? data.reverse() : [];
+}
+
+/**
+ * Upload media buffer to Supabase storage bucket and return public URL
+ * fileBuffer: Buffer
+ */
+export async function uploadMediaToStorage(path, fileBuffer, contentType) {
+  if (!supabase) throw new Error("Supabase not initialized");
+  const { data, error } = await supabase.storage.from(BUCKET).upload(path, fileBuffer, {
+    contentType,
+    upsert: false
+  });
+  if (error) {
+    console.error("uploadMediaToStorage error:", error);
+    throw error;
+  }
+  const { data: publicUrlData, error: urlErr } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  if (urlErr) {
+    console.error("getPublicUrl error:", urlErr);
+    throw urlErr;
+  }
+  return publicUrlData?.publicUrl || null;
+}
