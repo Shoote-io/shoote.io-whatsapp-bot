@@ -1,15 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Kreye koneksyon ak Supabase
+// Konekte ak Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
 
-/**
- * Ranmase yon konvèsasyon pa ID
- * @param {string} conversationId - ID konvèsasyon an
- */
+// Ranmase yon konvèsasyon
 export async function getConversation(conversationId) {
   const { data, error } = await supabase
     .from("conversations")
@@ -21,14 +18,10 @@ export async function getConversation(conversationId) {
     console.error("❌ Erè getConversation:", error);
     return null;
   }
-
   return data;
 }
 
-/**
- * Sove oswa mete ajou yon konvèsasyon
- * @param {object} conversationData - Done konvèsasyon an
- */
+// Sove oswa mete ajou konvèsasyon
 export async function saveConversation(conversationData) {
   const { data, error } = await supabase
     .from("conversations")
@@ -39,14 +32,10 @@ export async function saveConversation(conversationData) {
     console.error("❌ Erè saveConversation:", error);
     return null;
   }
-
   return data;
 }
 
-/**
- * Ranmase done yon itilizatè pa WhatsApp ID oswa telefòn
- * @param {string} phoneNumber - Nimewo WhatsApp itilizatè a
- */
+// Ranmase done itilizatè
 export async function getUser(phoneNumber) {
   const { data, error } = await supabase
     .from("users")
@@ -58,7 +47,6 @@ export async function getUser(phoneNumber) {
     console.error("❌ Erè getUser:", error);
     return null;
   }
-
   return data;
 }
 
