@@ -1,4 +1,8 @@
 // services/whatsapp.js
+export async function handleIncomingWebhook(body) {
+  console.log("📩 Webhook resevwa payload:");
+  console.log(JSON.stringify(body, null, 2));
+
 import axios from "axios";
 import FormData from "form-data";
 import mime from "mime-types";
