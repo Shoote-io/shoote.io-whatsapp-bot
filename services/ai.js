@@ -2,141 +2,75 @@
 import axios from "axios";
 import { getConversation } from "./supabase.js";
 
-const provider = (process.env.LLM_PROVIDER || "groq").toLowerCase();
+// ⚠️ DIRECT HARD-CODED API KEY (if .env fails)
+const GROQ_KEY = process.env.GROQ_API_KEY || "YOUR_GROQ_API_KEY_HERE";
+
+// Set provider fixed to "groq"
+const provider = "groq";
 
 export async function initAI() {
-  console.log("🧠 AI service initialized (provider:", provider + ")");
+  console.log("🧠 AI service initialized (provider: groq)");
 }
 
 /* -------------------------------------------
-   1️⃣ DETEKSYON SALITASYON / ENTANSYON SANS AI
+   1️⃣ INTENT DETECTION (FAST)
 -------------------------------------------- */
 
 function detectIntent(text) {
   const t = text.trim().toLowerCase();
 
-  const greetings = ["alo", "allo", "salut", "bonjou", "bonswa", "hola", "hey", "hi", "hello"];
-  const printKeywords = ["imprime", "printing", "enpresyon", "print", "copie", "scanner", "scan"];
+  const greetings = ["alo","allo","salut","bonjou","bonswa","hola","hey","hi","hello"];
+  const printKeywords = ["imprime","printing","enpresyon","print","copie","scanner","scan"];
 
-  if (greetings.some(g => t.startsWith(g))) {
-    return "greeting";
-  }
-
-  if (printKeywords.some(k => t.includes(k))) {
-    return "print";
-  }
-
+  if (greetings.some(g => t.startsWith(g))) return "greeting";
+  if (printKeywords.some(k => t.includes(k))) return "print";
   return "unknown";
 }
 
 /* -------------------------------------------
-   2️⃣ PROVIDER: GROQ — Latest API
+   2️⃣ GROQ — Llama-3.1-8B Model FIXED
 -------------------------------------------- */
 
 async function callGroq(prompt) {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) throw new Error("GROQ_API_KEY not set");
-
-  const url = "https://api.groq.com/openai/v1/chat/completions";
-
-  const body = {
-    model: "llama-3.1-70b-versatile", // ⭐ modern, stable, fully supported
-    messages: [
-      { role: "system", content: "Ou se yon asistan WhatsApp calm, pwofesyonèl, e fè kout repons klè." },
-      { role: "user", content: prompt }
-    ],
-    temperature: 0.4,
-    max_tokens: 350
-  };
-
-  const res = await axios.post(url, body, {
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json"
-    }
-  });
-
-  return res.data?.choices?.[0]?.message?.content || "";
-}
-
-/* -------------------------------------------
-   3️⃣ PROVIDER: OpenAI GPT-4o Mini
--------------------------------------------- */
-
-async function callOpenAI(prompt) {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY not set");
-
-  const url = "https://api.openai.com/v1/chat/completions";
+  if (!GROQ_KEY) throw new Error("Missing GROQ API key");
 
   const res = await axios.post(
-    url,
+    "https://api.groq.com/openai/v1/chat/completions",
     {
-      model: "gpt-4o-mini",
+      model: "llama-3.1-8b-instant",  // ⭐ FREE, FAST, STABLE
       messages: [
-        { role: "system", content: "You are a professional WhatsApp assistant." },
+        { role: "system", content: "Ou se yon asistan WhatsApp calm, pwofesyonèl, ak kout repons." },
         { role: "user", content: prompt }
       ],
-      max_tokens: 350,
-      temperature: 0.4
-    },
-    {
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }
-    }
-  );
-
-  return res.data?.choices?.[0]?.message?.content || "";
-}
-
-/* -------------------------------------------
-   4️⃣ PROVIDER: Claude
--------------------------------------------- */
-
-async function callClaude(prompt) {
-  const key = process.env.CLAUDE_API_KEY;
-  if (!key) throw new Error("CLAUDE_API_KEY not set");
-
-  const url = "https://api.anthropic.com/v1/messages";
-
-  const res = await axios.post(
-    url,
-    {
-      model: "claude-3-haiku-20240307",
-      max_tokens: 350,
-      messages: [
-        { role: "user", content: prompt }
-      ]
+      temperature: 0.3,
+      max_tokens: 300
     },
     {
       headers: {
-        "x-api-key": key,
-        "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01"
+        Authorization: `Bearer ${GROQ_KEY}`,
+        "Content-Type": "application/json"
       }
     }
   );
 
-  return res.data?.content?.[0]?.text || "";
+  return res.data?.choices?.[0]?.message?.content || "";
 }
 
 /* -------------------------------------------
-   5️⃣ GENERATE REPLY WITH CONTEXT + FALLBACKS
+   3️⃣ REPLY GENERATION WITH HISTORY
 -------------------------------------------- */
 
 export async function generateReply(userNumber, userText, history = null) {
   try {
-    /* --- 1 : Intent Shortcuts (Super Fast) --- */
+    // --- INTENT SHORTCUTS ---
     const intent = detectIntent(userText);
 
-    if (intent === "greeting") {
-      return "Bonjou 👋! Mwen la pou ede w ak sèvis enpresyon, dokiman, foto ak lòt demann. Kijan mwen ka ede w jodi a?";
-    }
+    if (intent === "greeting")
+      return "Bonjou 👋! Kijan mwen ka ede w ak sèvis dokiman oswa enpresyon?";
+    if (intent === "print")
+      return "Pou enpresyon 📄: Voye fichye w, kantite paj, koulè / N&B, epi double-face si w vle.";
 
-    if (intent === "print") {
-      return "Pou enpresyon 📄:\n• Voye fichye w la (PDF, Word, Excel)\n• Di m ki kantite paj / koulè\n• E si w vle double-face\nM ap okipe rès la!";
-    }
-
-    /* --- 2 : Load historic messages --- */
+    // --- HISTORY ---
     const limit = Number(process.env.CONVERSATION_HISTORY_LIMIT || 8);
     const convo = history || (await getConversation(userNumber, limit));
 
@@ -147,15 +81,11 @@ export async function generateReply(userNumber, userText, history = null) {
 
     prompt += `User: ${userText}\nBot:`;
 
-    /* --- 3 : Select AI Provider --- */
-    if (provider === "groq") return await callGroq(prompt);
-    if (provider === "openai") return await callOpenAI(prompt);
-    if (provider === "claude") return await callClaude(prompt);
-
-    throw new Error("Unknown LLM_PROVIDER");
+    // --- ALWAYS GROQ ---
+    return await callGroq(prompt);
 
   } catch (err) {
-    console.error("❌ AI Error:", err.message);
-    return "Mwen regrèt — gen yon pwoblèm teknik. Eseye ankò pita 🙏.";
+    console.error("❌ AI ERROR:", err.message);
+    return "Gen yon pwoblèm teknik. Eseye ankò pita 🙏.";
   }
 }
