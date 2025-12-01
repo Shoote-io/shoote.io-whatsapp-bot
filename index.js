@@ -1,58 +1,144 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import { runLLM } from "./ai.js";
+// -----------------------------------------------
+//  WhatsApp AI Bot - Professional Production Build
+// -----------------------------------------------
 
-dotenv.config();
+import express from "express";
+import bodyParser from "body-parser";
+import fetch from "node-fetch";
+import { generateAIReply } from "./services/ai.js";
 
 const app = express();
+app.use(bodyParser.json());
 
-// Middlewares
-app.use(cors());
-app.use(express.json());
+// --------------------------
+//  Environment Variables
+// --------------------------
+const PORT = process.env.PORT || 10000;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
-// Health Check
-app.get("/", (req, res) => {
-  res.json({ status: "API is running", timestamp: new Date().toISOString() });
-});
+// --------------------------
+//  Utility Logs
+// --------------------------
+function log(...params) {
+  console.log("🟦", ...params);
+}
 
-// LLM Route
-app.post("/api/ask", async (req, res) => {
+function logError(...params) {
+  console.error("⛔", ...params);
+}
+
+// -----------------------------
+//  Send WhatsApp Message
+// -----------------------------
+async function sendWhatsAppMessage(to, message) {
   try {
-    const { prompt } = req.body;
-
-    if (!prompt || prompt.trim() === "") {
-      return res.status(400).json({ error: "Prompt is required." });
-    }
-
-    // Call LLM
-    const response = await runLLM(prompt);
-
-    res.json({
-      success: true,
-      model: process.env.LLM_MODEL || "llama-3.1-70b-versatile",
-      response,
+    await fetch(`https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        text: { body: message },
+      }),
     });
-  } catch (error) {
-    console.error("LLM Error:", error);
 
-    // Handle specific Groq model decommission
-    if (error?.message?.includes("decommissioned")) {
-      return res.status(410).json({
-        error: "Model decommissioned. Please update to a supported model.",
-        details: error.message,
-      });
-    }
-
-    res.status(500).json({
-      error: "Internal server error",
-      details: error.message,
-    });
+    log("📤 Message sent →", to);
+  } catch (err) {
+    logError("WhatsApp Send Error:", err?.message);
   }
+}
+
+// -------------------------------------------------
+//  VERIFY WEBHOOK (META)
+// -------------------------------------------------
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    log("✅ Webhook successfully verified");
+    return res.status(200).send(challenge);
+  }
+
+  return res.sendStatus(403);
 });
 
-const PORT = process.env.PORT || 3000;
+// -------------------------------------------------
+//  HANDLE INCOMING WHATSAPP MESSAGES
+// -------------------------------------------------
+app.post("/webhook", async (req, res) => {
+  const body = req.body;
 
+  if (body.object !== "whatsapp_business_account") {
+    return res.sendStatus(404);
+  }
+
+  const entry = body.entry?.[0];
+  const change = entry?.changes?.[0];
+  const message = change?.value?.messages?.[0];
+
+  if (!message) return res.sendStatus(200);
+
+  const from = message.from;
+
+  // -------------------------
+  // Text Message
+  // -------------------------
+  if (message.type === "text") {
+    const text = message.text.body;
+    const lower = text.toLowerCase();
+
+    log("📝 User:", text);
+
+    // Quick routing
+    if (["hi","hello","salut","bonjour","hola","alo"].some(x => lower.includes(x))) {
+      await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
+      return res.sendStatus(200);
+    }
+
+    if (lower.includes("pri") || lower.includes("price") || lower.includes("prix")) {
+      await sendWhatsAppMessage(
+        from,
+        "Pou enpresyon, pri yo depann de kalite travay la. Ki tip enpresyon ou bezwen? (kat biznis, bannè, logo, elatriye)."
+      );
+      return res.sendStatus(200);
+    }
+
+    // AI Response
+    const aiReply = await generateAIReply(text);
+    await sendWhatsAppMessage(from, aiReply);
+
+    return res.sendStatus(200);
+  }
+
+  // -------------------------
+  // Image
+  // -------------------------
+  if (message.type === "image") {
+    await sendWhatsAppMessage(
+      from,
+      "Mwen resevwa foto a. Si ou bezwen analiz oswa enpresyon, fè mwen konnen sa ou bezwen."
+    );
+    return res.sendStatus(200);
+  }
+
+  // -------------------------
+  // Other message types
+  // -------------------------
+  await sendWhatsAppMessage(from, `Mwen resevwa yon mesaj tip *${message.type}*.`);
+
+  return res.sendStatus(200);
+});
+
+// --------------------------
+//  Start Server
+// --------------------------
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  log(`🚀 Server running on port ${PORT}`);
 });
