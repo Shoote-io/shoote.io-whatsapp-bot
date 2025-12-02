@@ -123,7 +123,14 @@ app.post("/webhook", async (req, res) => {
   if (message.type === "image") {
     await sendWhatsAppMessage(
       from,
-      "Mwen resevwa foto a. Si ou bezwen analiz oswa enpresyon, fè mwen konnen sa ou bezwen."
+      "🌟 Mèsi pou enterè w nan Elmidor Group Influence & Entrepreneurship Challenge la!
+      Nou konfime screenshot ou a.
+Pou kòmanse, tanpri ranpli fòm ofisyèl enskripsyon an:
+
+👉 https://tally.so/r/Zj9A1z
+
+Apre ou fin ranpli li, nap voye w règleman yo ak etap pou valide patisipasyon ou.
+Bòn chans! 🚀"
     );
     return res.sendStatus(200);
   }
