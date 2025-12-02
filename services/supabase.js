@@ -22,11 +22,16 @@ export async function initSupabase() {
  */
 export async function saveMessage(message) {
   if (!supabase) return null;
-  const { data, error } = await supabase.from("messages").insert([message]);
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert([message]);
+
   if (error) {
     console.error("saveMessage error:", error);
     return null;
   }
+
   return data;
 }
 
@@ -36,11 +41,16 @@ export async function saveMessage(message) {
  */
 export async function saveReply(reply) {
   if (!supabase) return null;
-  const { data, error } = await supabase.from("replies").insert([reply]);
+
+  const { data, error } = await supabase
+    .from("replies")
+    .insert([reply]);
+
   if (error) {
     console.error("saveReply error:", error);
     return null;
   }
+
   return data;
 }
 
@@ -50,6 +60,7 @@ export async function saveReply(reply) {
  */
 export async function getConversation(userNumber, limit = 8) {
   if (!supabase) return [];
+
   const { data, error } = await supabase
     .from("messages")
     .select("from_number, body, created_at, role")
@@ -61,27 +72,36 @@ export async function getConversation(userNumber, limit = 8) {
     console.error("getConversation error:", error);
     return [];
   }
+
   return data ? data.reverse() : [];
 }
 
 /**
  * Upload media buffer to Supabase storage bucket and return public URL
- * fileBuffer: Buffer
  */
 export async function uploadMediaToStorage(path, fileBuffer, contentType) {
   if (!supabase) throw new Error("Supabase not initialized");
-  const { data, error } = await supabase.storage.from(BUCKET).upload(path, fileBuffer, {
-    contentType,
-    upsert: false
-  });
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, fileBuffer, {
+      contentType,
+      upsert: false
+    });
+
   if (error) {
     console.error("uploadMediaToStorage error:", error);
     throw error;
   }
-  const { data: publicUrlData, error: urlErr } = supabase.storage.from(BUCKET).getPublicUrl(path);
+
+  const { data: publicUrlData, error: urlErr } = supabase.storage
+    .from(BUCKET)
+    .getPublicUrl(path);
+
   if (urlErr) {
     console.error("getPublicUrl error:", urlErr);
     throw urlErr;
   }
+
   return publicUrlData?.publicUrl || null;
 }
