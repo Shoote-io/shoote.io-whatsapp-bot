@@ -194,6 +194,65 @@ Bòn chans ak avni ou! 🚀✨`
   }
 
   // -------------------------
+// Image
+// -------------------------
+if (message.type === "image") {
+  try {
+    // Extract image ID
+    const mediaId = message.image.id;
+
+    // Get meta info
+    const info = await fetch(
+      `https://graph.facebook.com/v21.0/${mediaId}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+      }
+    ).then(r => r.json());
+
+    const mediaUrl = info.url;
+    const mimeType = info.mime_type || "image/jpeg";
+
+    // Download the image buffer
+    const buffer = await fetch(mediaUrl, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+    }).then(r => r.arrayBuffer());
+
+    // Upload →
+    const filename = `wa_${Date.now()}.jpg`;
+
+    try {
+      await uploadMediaToStorage(filename, Buffer.from(buffer), mimeType);
+      console.log("✅ Media uploaded:", filename);
+    } catch (uploadErr) {
+      console.error("🔥 Media upload failed:", uploadErr.message);
+      // BUT DON’T STOP THE BOT
+    }
+
+  } catch (err) {
+    console.error("⛔ Image processing failed but flow continues:", err?.message);
+  }
+
+  // ALWAYS send reply even after media failure
+  await sendWhatsAppMessage(
+    from,
+    `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
+
+Nou konfime resevwa screenshot ou a.  
+
+📌 *ETAP SUIVAN:*  
+Tanpri ranpli fòm ofisyèl enskripsyon an pou valide patisipasyon ou:
+
+👉 https://tally.so/r/Zj9A1z
+
+Apre ou fin ranpli li, n ap voye règleman yo + etap final yo.  
+Bòn chans ak avni ou! 🚀✨`
+  );
+
+  return res.sendStatus(200);
+}
+
+  // -------------------------
   // OTHER TYPES
   // -------------------------
   await saveMessage({
