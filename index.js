@@ -1,11 +1,17 @@
 // -----------------------------------------------
-//  WhatsApp AI Bot - Professional Production Build
+//  WhatsApp AI Bot - With Supabase Logging
 // -----------------------------------------------
 
 import express from "express";
 import bodyParser from "body-parser";
 import fetch from "node-fetch";
 import { generateAIReply } from "./services/ai.js";
+import {
+  initSupabase,
+  saveMessage,
+  saveReply,
+  uploadMediaToStorage
+} from "./services/supabase.js";
 
 const app = express();
 app.use(bodyParser.json());
@@ -19,15 +25,15 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // --------------------------
-//  Utility Logs
+//  Logs
 // --------------------------
-function log(...params) {
-  console.log("🟦", ...params);
-}
+const log = (...x) => console.log("🟦", ...x);
+const logError = (...x) => console.error("⛔", ...x);
 
-function logError(...params) {
-  console.error("⛔", ...params);
-}
+// --------------------------
+//  Init Supabase
+// --------------------------
+initSupabase();
 
 // -----------------------------
 //  Send WhatsApp Message
@@ -47,6 +53,13 @@ async function sendWhatsAppMessage(to, message) {
       }),
     });
 
+    // Save bot reply
+    await saveReply({
+      to_number: to,
+      body: message,
+      media_url: null
+    });
+
     log("📤 Message sent →", to);
   } catch (err) {
     logError("WhatsApp Send Error:", err?.message);
@@ -54,7 +67,7 @@ async function sendWhatsAppMessage(to, message) {
 }
 
 // -------------------------------------------------
-//  VERIFY WEBHOOK (META)
+//  VERIFY WEBHOOK
 // -------------------------------------------------
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -62,7 +75,7 @@ app.get("/webhook", (req, res) => {
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    log("✅ Webhook successfully verified");
+    log("✅ Webhook verified");
     return res.status(200).send(challenge);
   }
 
@@ -82,22 +95,27 @@ app.post("/webhook", async (req, res) => {
   const entry = body.entry?.[0];
   const change = entry?.changes?.[0];
   const message = change?.value?.messages?.[0];
+  const from = message?.from;
 
   if (!message) return res.sendStatus(200);
 
-  const from = message.from;
-
   // -------------------------
-  // Text Message
+  // 1. HANDLE TEXT MESSAGE
   // -------------------------
   if (message.type === "text") {
     const text = message.text.body;
+
+    await saveMessage({
+      from_number: from,
+      body: text,
+      media_url: null,
+      media_mime: null,
+      raw: message
+    });
+
     const lower = text.toLowerCase();
 
-    log("📝 User:", text);
-
-    // Quick routing
-    if (["hi","hello","salut","bonjour","hola","alo"].some(x => lower.includes(x))) {
+    if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
       await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
       return res.sendStatus(200);
     }
@@ -110,7 +128,6 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // AI Response
     const aiReply = await generateAIReply(text);
     await sendWhatsAppMessage(from, aiReply);
 
@@ -118,12 +135,45 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -------------------------
-  // Image
+  // 2. HANDLE IMAGE MESSAGE
   // -------------------------
-if (message.type === "image") {
-  await sendWhatsAppMessage(
-    from,
-    `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
+  if (message.type === "image") {
+    try {
+      const mediaId = message.image.id;
+
+      // Step 1: get binary from WhatsApp
+      const mediaResp = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
+        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+      });
+      const mediaJson = await mediaResp.json();
+
+      const mediaUrl = mediaJson.url;
+
+      const fileResp = await fetch(mediaUrl, {
+        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+      });
+
+      const buffer = Buffer.from(await fileResp.arrayBuffer());
+      const contentType = fileResp.headers.get("content-type");
+
+      const filePath = `whatsapp/${from}/${Date.now()}.jpg`;
+
+      // Step 2: upload to Supabase Storage
+      const publicUrl = await uploadMediaToStorage(filePath, buffer, contentType);
+
+      // Step 3: save record in DB
+      await saveMessage({
+        from_number: from,
+        body: null,
+        media_url: publicUrl,
+        media_mime: contentType,
+        raw: message
+      });
+
+      // Step 4: respond to user
+      await sendWhatsAppMessage(
+        from,
+        `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
 
 Nou konfime resevwa screenshot ou a.  
 
@@ -132,16 +182,32 @@ Tanpri ranpli fòm ofisyèl enskripsyon an pou valide patisipasyon ou:
 
 👉 https://tally.so/r/Zj9A1z
 
-Apre ou fin ranpli li, n ap voye règleman yo + etap final yo.  
+Apre ou fin ranpli li, w ap resevwa règleman yo + etap final yo.  
 Bòn chans ak avni ou! 🚀✨`
-    );
+      );
+
+    } catch (err) {
+      logError("⛔ Image Processing Error:", err.message);
+    }
+
     return res.sendStatus(200);
   }
 
   // -------------------------
-  // Other message types
+  // OTHER TYPES
   // -------------------------
-  await sendWhatsAppMessage(from, `Mwen resevwa yon mesaj tip *${message.type}*.`);
+  await saveMessage({
+    from_number: from,
+    body: null,
+    media_url: null,
+    media_mime: message.type,
+    raw: message
+  });
+
+  await sendWhatsAppMessage(
+    from,
+    `Mwen resevwa yon mesaj tip *${message.type}*.`
+  );
 
   return res.sendStatus(200);
 });
