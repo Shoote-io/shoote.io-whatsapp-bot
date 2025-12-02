@@ -135,45 +135,51 @@ app.post("/webhook", async (req, res) => {
   }
 
   // -------------------------
-  // 2. HANDLE IMAGE MESSAGE
+ // 2. HANDLE IMAGE MESSAGE
   // -------------------------
-  if (message.type === "image") {
+if (message.type === "image") {
+  try {
+    const mediaId = message.image.id;
+
+    // Step 1 – Fetch media metadata
+    const mediaResp = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+    });
+    const meta = await mediaResp.json();
+
+    const mediaUrl = meta.url;
+    const mimeType = meta.mime_type || "image/jpeg";
+
+    // Step 2 – Download file binary
+    const raw = await fetch(mediaUrl, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+    });
+    const buffer = Buffer.from(await raw.arrayBuffer());
+
+    const filename = `whatsapp/${from}/${Date.now()}.jpg`;
+    let publicUrl = null;
+
     try {
-      const mediaId = message.image.id;
+      // Try upload – BUT DO NOT STOP IF FAILS
+      publicUrl = await uploadMediaToStorage(filename, buffer, mimeType);
+      console.log("✔ Uploaded:", filename);
+    } catch (uploadErr) {
+      console.error("🔥 Upload failed BUT CONTINUING:", uploadErr.message);
+    }
 
-      // Step 1: get binary from WhatsApp
-      const mediaResp = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
-        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-      });
-      const mediaJson = await mediaResp.json();
+    // STEP 3 — Save message log, EVEN IF UPLOAD FAIL
+    await saveMessage({
+      from_number: from,
+      body: null,
+      media_url: publicUrl, // might be null
+      media_mime: mimeType,
+      raw: message
+    });
 
-      const mediaUrl = mediaJson.url;
-
-      const fileResp = await fetch(mediaUrl, {
-        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-      });
-
-      const buffer = Buffer.from(await fileResp.arrayBuffer());
-      const contentType = fileResp.headers.get("content-type");
-
-      const filePath = `whatsapp/${from}/${Date.now()}.jpg`;
-
-      // Step 2: upload to Supabase Storage
-      const publicUrl = await uploadMediaToStorage(filePath, buffer, contentType);
-
-      // Step 3: save record in DB
-      await saveMessage({
-        from_number: from,
-        body: null,
-        media_url: publicUrl,
-        media_mime: contentType,
-        raw: message
-      });
-
-      // Step 4: respond to user
-      await sendWhatsAppMessage(
-        from,
-        `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
+    // STEP 4 — ALWAYS reply
+    await sendWhatsAppMessage(
+      from,
+      `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
 
 Nou konfime resevwa screenshot ou a.  
 
@@ -182,16 +188,22 @@ Tanpri ranpli fòm ofisyèl enskripsyon an pou valide patisipasyon ou:
 
 👉 https://tally.so/r/Zj9A1z
 
-Apre ou fin ranpli li, w ap resevwa règleman yo + etap final yo.  
+Apre ou fin ranpli li, n ap voye règleman yo + etap final yo.  
 Bòn chans ak avni ou! 🚀✨`
-      );
+    );
 
-    } catch (err) {
-      logError("⛔ Image Processing Error:", err.message);
-    }
+  } catch (err) {
+    console.error("🔥 Fatal error in image handling BUT BOT LIVES:", err.message);
 
-    return res.sendStatus(200);
+    // Even crash-level fail → bot still replies
+    await sendWhatsAppMessage(
+      from,
+      "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
+    );
   }
+
+  return res.sendStatus(200);
+}
 
   // -------------------------
 // Image
