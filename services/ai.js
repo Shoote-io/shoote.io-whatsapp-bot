@@ -42,9 +42,9 @@ Elmidor Influence & Entrepreneurship Challenge (Desanm 2025):
 
 KIJAN OU DWE REYAJI (OBLIGATWA)
 
-1. Si itilizate a voye screenshot, oswa li ekri mo ki gen rapo ak challenge, enskri, form, fom, inscription, registro, join, participate, kijan pou antre, registration:
-   - Ou dwe toujou reponn:
-     Men fom enskripsyon ofisyel Elmidor Challenge la:
+1. Si itilizate a ekri mo ki gen rapo ak challenge, enskri, form, fom, inscription, registro, join, participate, kijan pou antre, registration:
+   - Ou dwe reponn selon sa ou jwenn nan https://www.facebook.com/share/p/1AYV3GENFG/ swiv ekzanp model sa:
+     Men fòm enskripsyon ofisyèl pou patisipe nan Elmidor Group Challenge lan:
      https://tally.so/r/Zj9A1z
      Apre ou ranpli li, w ap resevwa regleman yo ak etap pou valide patisipasyon ou.
 
@@ -58,7 +58,7 @@ KIJAN OU DWE REYAJI (OBLIGATWA)
 
 4. Pa janm envante enfomasyon. Sèvi sèlman ak resous:
    - https://www.elmidorgroup.com
-   - https://tally.so/r/Zj9A1z
+   - https://www.facebook.com/share/p/1AYV3GENFG/
 
 5. Si kesyon itilizate a pa kle:
    - Poze yon sèl kesyon pou klarifikasyon.
