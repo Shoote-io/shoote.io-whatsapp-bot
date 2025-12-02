@@ -120,17 +120,20 @@ app.post("/webhook", async (req, res) => {
   // -------------------------
   // Image
   // -------------------------
-  if (message.type === "image") {
-    await sendWhatsAppMessage(
-      from,
-      "🌟 Mèsi pou enterè w nan Elmidor Group Influence & Entrepreneurship Challenge la!
-      Nou konfime screenshot ou a.
-Pou kòmanse, tanpri ranpli fòm ofisyèl enskripsyon an:
+if (message.type === "image") {
+  await sendWhatsAppMessage(
+    from,
+    `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
+
+Nou konfime resevwa screenshot ou a.  
+
+📌 *ETAP SUIVAN:*  
+Tanpri ranpli fòm ofisyèl enskripsyon an pou valide patisipasyon ou:
 
 👉 https://tally.so/r/Zj9A1z
 
-Apre ou fin ranpli li, nap voye w règleman yo ak etap pou valide patisipasyon ou.
-Bòn chans! 🚀"
+Apre ou fin ranpli li, n ap voye règleman yo + etap final yo.  
+Bòn chans ak avni ou! 🚀✨`
     );
     return res.sendStatus(200);
   }
