@@ -5,26 +5,28 @@ import { createClient } from "@supabase/supabase-js";
 // 🔹 Load environment variables properly
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // 🔹 Bucket setup (with fallback)
 export const BUCKET = process.env.SUPABASE_MEDIA_BUCKET || "ElmidorGroup";
 
-// 🔹 Client pou frontend / tasks normal
+// 🔹 Client pou frontend / public access
 export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-// 🔹 Client pou backend admin (uploads, bypass RLS)
-export const supabaseAdmin = SUPABASE_URL && SUPABASE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_KEY)
+// 🔹 Client pou backend admin (write access, bypass RLS)
+export const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
   : null;
 
+// 🔹 Initialize helper (optional)
 export function initSupabase() {
   console.log("🗄️ Supabase initialized");
   return supabaseAdmin;
+}
 
-// Helper pou verify envs ok
+// 🔹 Helper pou verify envs ok
 export function checkSupabaseConfig() {
   if (!SUPABASE_URL) console.error("❌ Missing SUPABASE_URL variable");
   if (!SUPABASE_ANON_KEY) console.error("❌ Missing SUPABASE_ANON_KEY variable");
