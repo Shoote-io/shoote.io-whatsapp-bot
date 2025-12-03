@@ -10,7 +10,9 @@ import {
   initSupabase,
   saveMessage,
   saveReply,
-  uploadMediaToStorage
+  uploadMediaToStorage,
+  saveMediaLog,          // ➕ ADD
+  processMediaUpload
 } from "./services/supabase.js";
 
 const app = express();
@@ -134,9 +136,9 @@ app.post("/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // -------------------------
- // 2. HANDLE IMAGE MESSAGE
-  // -------------------------
+// -------------------------
+// 2. HANDLE IMAGE MESSAGE
+// -------------------------
 if (message.type === "image") {
   try {
     const mediaId = message.image.id;
@@ -156,27 +158,28 @@ if (message.type === "image") {
     });
     const buffer = Buffer.from(await raw.arrayBuffer());
 
-    const filename = `whatsapp/${from}/${Date.now()}.jpg`;
-    let publicUrl = null;
+    // Step 3 – Upload + Log
+    const filename = `${Date.now()}.jpg`;
 
-    try {
-      // Try upload – BUT DO NOT STOP IF FAILS
-      publicUrl = await uploadMediaToStorage(filename, buffer, mimeType);
-      console.log("✔ Uploaded:", filename);
-    } catch (uploadErr) {
-      console.error("🔥 Upload failed BUT CONTINUING:", uploadErr.message);
-    }
+    const mediaRecord = await processMediaUpload(
+      from,
+      filename,
+      buffer,
+      mimeType
+    );
 
-    // STEP 3 — Save message log, EVEN IF UPLOAD FAIL
+    const publicUrl = mediaRecord?.public_url || null;
+
+    // Step 4 – Save incoming message log
     await saveMessage({
       from_number: from,
       body: null,
-      media_url: publicUrl, // might be null
+      media_url: publicUrl,
       media_mime: mimeType,
       raw: message
     });
 
-    // STEP 4 — ALWAYS reply
+    // Step 5 – Reply
     await sendWhatsAppMessage(
       from,
       `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
@@ -195,71 +198,11 @@ Bòn chans ak avni ou! 🚀✨`
   } catch (err) {
     console.error("🔥 Fatal error in image handling BUT BOT LIVES:", err.message);
 
-    // Even crash-level fail → bot still replies
     await sendWhatsAppMessage(
       from,
       "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
     );
   }
-
-  return res.sendStatus(200);
-}
-
-  // -------------------------
-// Image
-// -------------------------
-if (message.type === "image") {
-  try {
-    // Extract image ID
-    const mediaId = message.image.id;
-
-    // Get meta info
-    const info = await fetch(
-      `https://graph.facebook.com/v21.0/${mediaId}`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
-      }
-    ).then(r => r.json());
-
-    const mediaUrl = info.url;
-    const mimeType = info.mime_type || "image/jpeg";
-
-    // Download the image buffer
-    const buffer = await fetch(mediaUrl, {
-      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
-    }).then(r => r.arrayBuffer());
-
-    // Upload →
-    const filename = `wa_${Date.now()}.jpg`;
-
-    try {
-      await uploadMediaToStorage(filename, Buffer.from(buffer), mimeType);
-      console.log("✅ Media uploaded:", filename);
-    } catch (uploadErr) {
-      console.error("🔥 Media upload failed:", uploadErr.message);
-      // BUT DON’T STOP THE BOT
-    }
-
-  } catch (err) {
-    console.error("⛔ Image processing failed but flow continues:", err?.message);
-  }
-
-  // ALWAYS send reply even after media failure
-  await sendWhatsAppMessage(
-    from,
-    `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
-
-Nou konfime resevwa screenshot ou a.  
-
-📌 *ETAP SUIVAN:*  
-Tanpri ranpli fòm ofisyèl enskripsyon an pou valide patisipasyon ou:
-
-👉 https://tally.so/r/Zj9A1z
-
-Apre ou fin ranpli li, n ap voye règleman yo + etap final yo.  
-Bòn chans ak avni ou! 🚀✨`
-  );
 
   return res.sendStatus(200);
 }
