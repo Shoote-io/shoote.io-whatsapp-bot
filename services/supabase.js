@@ -20,6 +20,10 @@ export const supabaseAdmin = SUPABASE_URL && SUPABASE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_KEY)
   : null;
 
+export function initSupabase() {
+  console.log("🗄️ Supabase initialized");
+  return supabaseAdmin;
+
 // Helper pou verify envs ok
 export function checkSupabaseConfig() {
   if (!SUPABASE_URL) console.error("❌ Missing SUPABASE_URL variable");
