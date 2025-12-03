@@ -1,25 +1,31 @@
 // services/supabase.js
+
 import { createClient } from "@supabase/supabase-js";
 
-export const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
+// 🔹 Load environment variables properly
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_KEY;
 
-export const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY,
-const BUCKET = "ElmidorGroup";
+// 🔹 Bucket setup (with fallback)
+export const BUCKET = process.env.SUPABASE_MEDIA_BUCKET || "ElmidorGroup";
 
-let supabase = null;
+// 🔹 Client pou frontend / tasks normal
+export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
-export async function initSupabase() {
-  if (!SUPABASE_URL || !SUPABASE_KEY) {
-    console.warn("Supabase not configured (SUPABASE_URL or SUPABASE_KEY missing).");
-    return;
-  }
-  supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-  console.log("🗄️ Supabase initialized");
+// 🔹 Client pou backend admin (uploads, bypass RLS)
+export const supabaseAdmin = SUPABASE_URL && SUPABASE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;
+
+// Helper pou verify envs ok
+export function checkSupabaseConfig() {
+  if (!SUPABASE_URL) console.error("❌ Missing SUPABASE_URL variable");
+  if (!SUPABASE_ANON_KEY) console.error("❌ Missing SUPABASE_ANON_KEY variable");
+  if (!SUPABASE_SERVICE_ROLE_KEY) console.error("❌ Missing SUPABASE_SERVICE_ROLE_KEY");
+  if (!BUCKET) console.warn("⚠ Using default bucket 'ElmidorGroup'");
 }
 
 /**
