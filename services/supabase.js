@@ -83,11 +83,8 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
   if (!supabase) throw new Error("Supabase not initialized");
 
   const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, fileBuffer, {
-      contentType,
-      upsert: false
-    });
+     .from("ElmidorGroup")
+  .upload(`${authUser.id}/${filename}`, file);
 
   if (error) {
     console.error("uploadMediaToStorage error:", error);
