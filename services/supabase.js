@@ -82,25 +82,31 @@ export async function getConversation(userNumber, limit = 8) {
 export async function uploadMediaToStorage(path, fileBuffer, contentType) {
   if (!supabase) throw new Error("Supabase not initialized");
 
+  console.log("📦 Uploading to:", path);
+
+  // Step 1 — upload file
   const { data, error } = await supabase.storage
-     .from("ElmidorGroup")
-  .upload(`incoming/${filename}`, file);
+    .from("ElmidorGroup")
+    .upload(path, fileBuffer, {
+      contentType,
+      upsert: true // allow overwrites
+    });
 
   if (error) {
-    console.error("uploadMediaToStorage error:", error);
+    console.error("uploadMediaToStorage error:", error.message);
     throw error;
   }
 
-  const { data: publicUrlData, error: urlErr } = supabase.storage
-    .from(BUCKET)
+  // Step 2 — generate public URL
+  const { data: urlData } = supabase.storage
+    .from("ElmidorGroup")
     .getPublicUrl(path);
 
-  if (urlErr) {
-    console.error("getPublicUrl error:", urlErr);
-    throw urlErr;
-  }
+  const url = urlData?.publicUrl || null;
 
-  return publicUrlData?.publicUrl || null;
+  console.log("✔ Storage URL =", url);
+
+  return url;
 }
 
 /**
