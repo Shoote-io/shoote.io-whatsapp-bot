@@ -105,3 +105,55 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
 
   return publicUrlData?.publicUrl || null;
 }
+
+/**
+ * Save media upload to media_logs table
+ * logEntry = { user_number, file_path, mime_type, public_url }
+ */
+export async function saveMediaLog(logEntry) {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("media_logs")
+    .insert([logEntry]);
+
+  if (error) {
+    console.error("saveMediaLog error:", error);
+    return null;
+  }
+
+  return data;
+}
+
+/**
+ * Upload file + write record to media_logs
+ */
+export async function processMediaUpload(userNumber, fileName, buffer, mimeType) {
+  try {
+    const filePath = `${BUCKET}/${userNumber}/${fileName}`;
+
+    // Upload file
+    const publicUrl = await uploadMediaToStorage(filePath, buffer, mimeType);
+
+    if (!publicUrl) {
+      console.error("processMediaUpload failed: no URL returned");
+      return null;
+    }
+
+    // Log into DB
+    const mediaRecord = {
+      user_number: userNumber,
+      file_path: filePath,
+      mime_type: mimeType,
+      public_url: publicUrl
+    };
+
+    await saveMediaLog(mediaRecord);
+
+    return mediaRecord;
+  } catch (err) {
+    console.error("processMediaUpload error:", err.message);
+    return null;
+  }
+}
+
