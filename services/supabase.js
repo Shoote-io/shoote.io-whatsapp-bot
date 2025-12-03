@@ -77,9 +77,9 @@ export async function saveReply(reply) {
  * returns array oldest->newest
  */
 export async function getConversation(userNumber, limit = 8) {
-  if (!supabase) return [];
+  if (!supabaseAdmin.storage) return [];
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin.storage
     .from("messages")
     .select("from_number, body, created_at, role")
     .eq("from_number", userNumber)
@@ -103,7 +103,7 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
   console.log("📦 Uploading to:", path);
 
   // Step 1 — upload file
-  const { data, error } = await supabase.storage
+  const { data, error } = await supabaseAdmin.storage
     .from("ElmidorGroup")
     .upload(path, fileBuffer, {
       contentType,
@@ -116,7 +116,7 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
   }
 
   // Step 2 — generate public URL
-  const { data: urlData } = supabase.storage
+  const { data: urlData } = supabaseAdmin.storage
     .from("ElmidorGroup")
     .getPublicUrl(path);
 
@@ -132,9 +132,9 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
  * logEntry = { user_number, file_path, mime_type, public_url }
  */
 export async function saveMediaLog(logEntry) {
-  if (!supabase) return null;
+  if (!supabaseAdmin) return null;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("media_logs")
     .insert([logEntry]);
 
