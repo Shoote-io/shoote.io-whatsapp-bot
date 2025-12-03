@@ -84,7 +84,7 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
 
   const { data, error } = await supabase.storage
      .from("ElmidorGroup")
-  .upload(`${authUser.id}/${filename}`, file);
+  .upload(`incoming/${filename}`, file);
 
   if (error) {
     console.error("uploadMediaToStorage error:", error);
