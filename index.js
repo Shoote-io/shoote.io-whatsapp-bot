@@ -87,33 +87,35 @@ app.get("/webhook", (req, res) => {
 // -------------------------------------------------
 //  HANDLE INCOMING WHATSAPP MESSAGES
 // -------------------------------------------------
-app.post("/webhook", async (req, res) => {
-  const body = req.body;
+app.post("/webhook", (req, res) => {
+  // ✅ Always respond immediately
+  res.sendStatus(200);
 
-  if (body.object !== "whatsapp_business_account") {
-    return res.sendStatus(404);
+  // Process async in background
+  handleWebhook(req.body).catch(err =>
+    console.error("Webhook async error:", err)
+  );
+});
+async function handleWebhook(body) {
+  if (body.object !== "whatsapp_business_account") return;
+
+  const message =
+    body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
+  if (!message) return;
+
+  const from = message.from;
+  const messageId = message.id;
+
+  // 🛑 Deduplication check
+  const alreadyExists = await messageExists(messageId);
+  if (alreadyExists) {
+    console.log("⚠ Duplicate ignored:", messageId);
+    return;
   }
 
-  const entry = body.entry?.[0];
-  const change = entry?.changes?.[0];
-  const message = change?.value?.messages?.[0];
-  const from = message?.from;
-
-  if (!message) return res.sendStatus(200);
-
-  // -------------------------
-  // 1. HANDLE TEXT MESSAGE
-  // -------------------------
-  if (message.type === "text") {
-    const text = message.text.body;
-
-    await saveMessage({
-      from_number: from,
-      body: text,
-      media_url: null,
-      media_mime: null,
-      raw: message
-    });
+  // Kontinye ak lojik ou la...
+}
 
     const lower = text.toLowerCase();
 
@@ -172,6 +174,7 @@ if (message.type === "image") {
 
     // Step 4 – Save incoming message log
     await saveMessage({
+  message_id: message.id,
       from_number: from,
       body: null,
       media_url: publicUrl,
