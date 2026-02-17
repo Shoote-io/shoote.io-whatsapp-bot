@@ -36,17 +36,19 @@ export function checkSupabaseConfig() {
 
 /**
  * Save incoming message record
- * message = { from_number, body, media_url, media_mime, raw }
+ * message = { message_id, from_number, body, media_url, media_mime, raw }
  */
 export async function saveMessage(message) {
   if (!supabase) return null;
 
   const { data, error } = await supabase
     .from("messages")
-    .insert([message]);
+    .upsert(message, {
+      onConflict: "message_id"
+    });
 
   if (error) {
-    console.error("saveMessage error:", error);
+    console.error("saveMessage error:", error.message);
     return null;
   }
 
