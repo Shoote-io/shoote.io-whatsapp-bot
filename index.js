@@ -27,19 +27,19 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // --------------------------
-//  Logs
+// Logs
 // --------------------------
 const log = (...x) => console.log("🟦", ...x);
 const logError = (...x) => console.error("⛔", ...x);
 
 // --------------------------
-//  Init Supabase
+// Init Supabase
 // --------------------------
 initSupabase();
 
-// -----------------------------
-//  Send WhatsApp Message
-// -----------------------------
+// --------------------------
+// Send WhatsApp Message
+// --------------------------
 async function sendWhatsAppMessage(to, message) {
   try {
     await fetch(`https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`, {
@@ -55,11 +55,10 @@ async function sendWhatsAppMessage(to, message) {
       }),
     });
 
-    // Save bot reply
     await saveReply({
       to_number: to,
       body: message,
-      media_url: null
+      media_url: null,
     });
 
     log("📤 Message sent →", to);
@@ -68,9 +67,9 @@ async function sendWhatsAppMessage(to, message) {
   }
 }
 
-// -------------------------------------------------
-//  VERIFY WEBHOOK
-// -------------------------------------------------
+// --------------------------
+// VERIFY WEBHOOK
+// --------------------------
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -84,37 +83,71 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// -------------------------------------------------
-//  HANDLE INCOMING WHATSAPP MESSAGES
-// -------------------------------------------------
+// --------------------------
+// HANDLE WEBHOOK
+// --------------------------
 app.post("/webhook", (req, res) => {
-  // ✅ Always respond immediately
-  res.sendStatus(200);
+  res.sendStatus(200); // ALWAYS FAST RESPONSE
 
-  // Process async in background
   handleWebhook(req.body).catch(err =>
-    console.error("Webhook async error:", err)
+    logError("Webhook async error:", err)
   );
 });
+
+// --------------------------
+// CORE HANDLER
+// --------------------------
 async function handleWebhook(body) {
   if (body.object !== "whatsapp_business_account") return;
 
-  const message =
-    body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-
+  const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
   if (!message) return;
 
   const from = message.from;
   const messageId = message.id;
 
-  // 🛑 Deduplication check
-  const alreadyExists = await messageExists(messageId);
-  if (alreadyExists) {
-    console.log("⚠ Duplicate ignored:", messageId);
-    return;
-  }
+  const messageBody = message.text?.body?.trim().toLowerCase();
 
-  // Kontinye ak lojik ou la...
+  try {
+    const { error: insertError } = await supabase
+      .from("messages")
+      .insert([
+        {
+          message_id: messageId,
+          from_number: from,
+          body: messageBody || null,
+          media_url: null,
+          media_mime: null,
+          raw: message,
+          role: "user"
+        }
+      ]);
+    // 🚫 Duplicate webhook → STOP CLEANLY
+    if (insertError) {
+      log("⚠ Duplicate ignored →", messageId);
+      return;
+    }
+
+    log("📩 New message →", messageBody);
+
+    // --------------------------
+    // COMMAND LOGIC
+    // --------------------------
+    if (messageBody === "video") {
+      log("🎬 VIDEO COMMAND");
+
+      await supabase
+        .from("commands")
+        .insert([
+          { type: "video", status: "pending" }
+        ]);
+
+      await sendWhatsAppMessage(from, "✅ Video command received");
+    }
+
+  } catch (err) {
+    logError("Webhook Processing Error:", err?.message);
+  }
 }
 
     const lower = text.toLowerCase();
