@@ -173,7 +173,7 @@ async function handleWebhook(body) {
 
     return res.sendStatus(200);
   }
-
+         
 // -------------------------
 // 2. HANDLE IMAGE MESSAGE
 // -------------------------
