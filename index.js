@@ -1,3 +1,4 @@
+
 // -----------------------------------------------
 //  WhatsApp AI Bot - With Supabase Logging
 // -----------------------------------------------
@@ -109,7 +110,6 @@ async function handleWebhook(body) {
   const messageBody = message.text?.body?.trim().toLowerCase();
 
   try {
-    const messageId = message.id;
     const { error: insertError } = await supabase
       .from("messages")
       .insert([
@@ -134,16 +134,16 @@ async function handleWebhook(body) {
     // --------------------------
     // COMMAND LOGIC
     // --------------------------
-    if (messageBody === "action") {
+    if (messageBody === "video") {
       log("🎬 VIDEO COMMAND");
 
       await supabase
         .from("commands")
         .insert([
-          { type: "action", status: "pending" }
+          { type: "video", status: "pending" }
         ]);
 
-      await sendWhatsAppMessage(from, "✅ Alert command received");
+      await sendWhatsAppMessage(from, "✅ Video command received");
     }
 
   } catch (err) {
