@@ -109,6 +109,7 @@ async function handleWebhook(body) {
   const messageBody = message.text?.body?.trim().toLowerCase();
 
   try {
+    const messageId = message.id;
     const { error: insertError } = await supabase
       .from("messages")
       .insert([
@@ -133,16 +134,16 @@ async function handleWebhook(body) {
     // --------------------------
     // COMMAND LOGIC
     // --------------------------
-    if (messageBody === "video") {
+    if (messageBody === "action") {
       log("🎬 VIDEO COMMAND");
 
       await supabase
         .from("commands")
         .insert([
-          { type: "video", status: "pending" }
+          { type: "action", status: "pending" }
         ]);
 
-      await sendWhatsAppMessage(from, "✅ Video command received");
+      await sendWhatsAppMessage(from, "✅ Alert command received");
     }
 
   } catch (err) {
