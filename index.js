@@ -92,25 +92,26 @@ app.post("/webhook", async (req, res) => {
 "whatsapp_business_account") { 
     return res.sendStatus(404); 
   } 
-const entry = body.entry?.[0]; 
-const change = entry?.changes?.[0]; 
-const message = change?.value?.messages?.[0]; 
 const from = message?.from; 
 if (!message) return res.sendStatus(200);
 // --------------------------
 // CORE HANDLER
 // --------------------------
 async function handleWebhook(body) {
-  if (body.object !== "whatsapp_business_account") return;
 
   const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
   if (!message) return;
 
   const from = message.from;
-  const messageId = message.id;
 
-  const text = message.text?.body || "";
-  const messageBody = text.trim().toLowerCase();
+  const text = message.text?.body;
+
+  if (text) {
+
+    const clean = text.trim().toLowerCase();
+
+    log("TEXT DETECTED →", `"${clean}"`);
+    log("MESSAGE TYPE →", message.type);
 
   try {
     const { error: insertError } = await supabase
