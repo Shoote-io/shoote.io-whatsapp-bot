@@ -94,27 +94,26 @@ app.post("/webhook", async (req, res) => {
   } 
   const entry = body.entry?.[0]; 
   const change = entry?.changes?.[0]; 
-  const message = change?.value?.messages?.[0];
+const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 const from = message?.from; 
 if (!message) return res.sendStatus(200);
 // --------------------------
 // CORE HANDLER
 // --------------------------
-async function handleWebhook(body) {
-
-  const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-  if (!message) return;
-
-  const from = message.from;
-
-  const text = message.text?.body;
-
-  if (text) {
-
-    const clean = text.trim().toLowerCase();
-
-    log("TEXT DETECTED →", `"${clean}"`);
-    log("MESSAGE TYPE →", message.type);
+async function handleWebhook(body) { 
+  if (body.object !== "whatsapp_business_account")
+    return; 
+  const message = 
+    body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]; 
+  if (!message) return; 
+  const from = message.from; 
+  const messageId = message.id; 
+  // 🛑 Deduplication check 
+  const alreadyExists = await
+    messageExists(messageId); 
+  if (alreadyExists) { 
+    console.log("⚠ Duplicate ignored:", messageId); 
+    return;
   }
   try {
     const { error: insertError } = await supabase
@@ -123,7 +122,7 @@ async function handleWebhook(body) {
         {
           message_id: messageId,
           from_number: from,
-          body: messageBody || null,
+          body: messageBody,
           media_url: null,
           media_mime: null,
           raw: message,
