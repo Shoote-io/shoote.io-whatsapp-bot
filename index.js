@@ -1,3 +1,4 @@
+
 // -----------------------------------------------
 //  WhatsApp AI Bot - With Supabase Logging
 // -----------------------------------------------
@@ -27,19 +28,19 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 // --------------------------
-// Logs
+//  Logs
 // --------------------------
 const log = (...x) => console.log("🟦", ...x);
 const logError = (...x) => console.error("⛔", ...x);
 
 // --------------------------
-// Init Supabase
+//  Init Supabase
 // --------------------------
 initSupabase();
 
-// --------------------------
-// Send WhatsApp Message
-// --------------------------
+// -----------------------------
+//  Send WhatsApp Message
+// -----------------------------
 async function sendWhatsAppMessage(to, message) {
   try {
     await fetch(`https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`, {
@@ -55,10 +56,11 @@ async function sendWhatsAppMessage(to, message) {
       }),
     });
 
+    // Save bot reply
     await saveReply({
       to_number: to,
       body: message,
-      media_url: null,
+      media_url: null
     });
 
     log("📤 Message sent →", to);
@@ -67,9 +69,9 @@ async function sendWhatsAppMessage(to, message) {
   }
 }
 
-// --------------------------
-// VERIFY WEBHOOK
-// --------------------------
+// -------------------------------------------------
+//  VERIFY WEBHOOK
+// -------------------------------------------------
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -83,60 +85,46 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// ------------------------------------------------- 
-//HANDLE INCOMING WHATSAPP MESSAGES 
-// ------------------------------------------------- 
-app.post("/webhook", async (req, res) => { 
-  const body = req.body; 
-  if (body.object !==
-"whatsapp_business_account") { 
-    return res.sendStatus(404); 
-  } 
-  const entry = body.entry?.[0]; 
-  const change = entry?.changes?.[0]; 
-const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-const from = message?.from; 
-if (!message) return res.sendStatus(200);
-// --------------------------
-// CORE HANDLER
-// --------------------------
-async function handleWebhook(body) { 
-  if (body.object !== "whatsapp_business_account")
-    return; 
-  const message = 
-    body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]; 
-  if (!message) return; 
-  const from = message.from; 
-  const messageId = message.id; 
-  // 🛑 Deduplication check 
-  const alreadyExists = await
-    messageExists(messageId); 
-  if (alreadyExists) { 
-    console.log("⚠ Duplicate ignored:", messageId); 
-    return;
-  }
-  try {
-    const { error: insertError } = await supabase
-      .from("messages")
-      .insert([
-        {
-          message_id: messageId,
-          from_number: from,
-          body: messageBody,
-          media_url: null,
-          media_mime: null,
-          raw: message,
-          role: "user"
-        }
-      ]);
+// -------------------------------------------------
+//  HANDLE INCOMING WHATSAPP MESSAGES
+// -------------------------------------------------
+app.post("/webhook", async (req, res) => {
+  const body = req.body;
 
+  if (body.object !== "whatsapp_business_account") {
+    return res.sendStatus(404);
+  }
+
+  const entry = body.entry?.[0];
+  const change = entry?.changes?.[0];
+  const message = change?.value?.messages?.[0];
+  const from = message?.from;
+
+  if (!message) return res.sendStatus(200);
+
+  // -------------------------
+  // 1. HANDLE TEXT MESSAGE
+  // -------------------------
+  if (message.type === "text") {
+    const text = message.text.body.trim().toLowerCase();
+    const messageId = message.id;
+
+    await saveMessage({
+      message_id: messageId,
+      from_number: from,
+      body: text,
+      media_url: null,
+      media_mime: null,
+      raw: message
+    });
+    // 🚫 Duplicate webhook → STOP CLEANLY
     if (insertError) {
       log("⚠ Duplicate ignored →", messageId);
       return;
     }
-
-    log("📩 New message →", `"${messageBody}"`);
-
+    log("📩 New message →", messageBody);
+    const lower = text.toLowerCase();
+// ✅ COMMAND LOGIC
     if (messageBody === "action") {
       log("🎬 COMMAND RECEIVED");
 
@@ -147,28 +135,25 @@ async function handleWebhook(body) {
       await sendWhatsAppMessage(from, "✅ Alert detected");
       return;
     }
-
-    const lower = messageBody;
-
-    if (["hi", "hello", "salut", "bonjour", "hola", "alo"]
-          .some(x => lower.includes(x))) {
+    if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
       await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
-      return;
+      return res.sendStatus(200);
     }
 
     if (lower.includes("pri") || lower.includes("price") || lower.includes("prix")) {
-      await sendWhatsAppMessage(from, "Pou enpresyon, pri yo depann...");
-      return;
+      await sendWhatsAppMessage(
+        from,
+        "Pou enpresyon, pri yo depann de kalite travay la. Ki tip enpresyon ou bezwen? (kat biznis, bannè, logo, elatriye)."
+      );
+      return res.sendStatus(200);
     }
 
     const aiReply = await generateAIReply(text);
     await sendWhatsAppMessage(from, aiReply);
 
-  } catch (err) {
-    logError("Webhook Processing Error:", err?.message);
+    return res.sendStatus(200);
   }
-}
-         
+
 // -------------------------
 // 2. HANDLE IMAGE MESSAGE
 // -------------------------
@@ -205,7 +190,6 @@ if (message.type === "image") {
 
     // Step 4 – Save incoming message log
     await saveMessage({
-  message_id: message.id,
       from_number: from,
       body: null,
       media_url: publicUrl,
@@ -237,8 +221,10 @@ Bòn chans ak avni ou! 🚀✨`
       "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
     );
   }
+
   return res.sendStatus(200);
-  }
+}
+
   // -------------------------
   // OTHER TYPES
   // -------------------------
