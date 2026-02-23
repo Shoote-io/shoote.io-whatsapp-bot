@@ -1,4 +1,3 @@
-
 // -----------------------------------------------
 //  WhatsApp AI Bot - With Supabase Logging
 // -----------------------------------------------
@@ -84,21 +83,15 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// ------------------------------------------------- 
-//HANDLE INCOMING WHATSAPP MESSAGES 
-// ------------------------------------------------- 
-app.post("/webhook", async (req, res) => { 
-  const body = req.body; 
-  if (body.object !==
-"whatsapp_business_account") { 
-    return res.sendStatus(404); 
-  } 
-const entry = body.entry?.[0]; 
-const change = entry?.changes?.[0]; 
-const message = change?.value?.messages?.[0]; 
-const from = message?.from; 
-if (!message) return res.sendStatus(200);
- }); 
+// --------------------------
+// HANDLE WEBHOOK
+// --------------------------
+app.post("/webhook", (req, res) => {
+  res.sendStatus(200); // ALWAYS FAST RESPONSE
+
+  handleWebhook(req.body).catch(err =>
+    logError("Webhook async error:", err)
+
 // --------------------------
 // CORE HANDLER
 // --------------------------
@@ -109,75 +102,74 @@ async function handleWebhook(body) {
   if (!message) return;
 
   const from = message.from;
-  const msgId = message.id;
+  const messageId = message.id;
 
-  const text = message.text?.body || null;
-  const messageBody = text?.trim().toLowerCase() || null;
-
-  console.log("RAW TEXT:", `"${text}"`);
-  console.log("NORMALIZED:", `"${messageBody}"`);
+  const messageBody = message.text?.body?.trim().toLowerCase();
 
   try {
+    const messageId = message.id;
     const { error: insertError } = await supabase
       .from("messages")
       .insert([
         {
-          message_id: msgId,
+          message_id: messageId,
           from_number: from,
-          body: text,              // ✅ save REAL text
+          body: messageBody || null,
           media_url: null,
           media_mime: null,
           raw: message,
           role: "user"
         }
-
+      ]);
+    // 🚫 Duplicate webhook → STOP CLEANLY
     if (insertError) {
-      log("⚠ Duplicate ignored →", msgId);
+      log("⚠ Duplicate ignored →", messageId);
       return;
     }
 
+    log("📩 New message →", messageBody);
+
     // --------------------------
-    // COMMAND
+    // COMMAND LOGIC
     // --------------------------
     if (messageBody === "action") {
-      log("🎬 COMMAND DETECTED");
+      log("🎬 COMMAND RECEIVED");
 
-      await supabase.from("commands").insert([
-        { type: "action", status: "pending" }
-      ]);
+      await supabase
+        .from("commands")
+        .insert([
+          { type: "action", status: "pending" }
+        ]);
 
-      await sendWhatsAppMessage(from, "✅ Alert received");
-      return;   // ✅ STOP FLOW (CRITICAL)
+      await sendWhatsAppMessage(from, "✅ Alert detected");
     }
-
-    // --------------------------
-    // BASIC AUTO REPLIES
-    // --------------------------
-    const lower = messageBody || "";
-
-    if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
-      await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
-      return;
-    }
-
-    if (lower.includes("pri") || lower.includes("price") || lower.includes("prix")) {
-      await sendWhatsAppMessage(
-        from,
-        "Pou enpresyon, pri yo depann de kalite travay la. Ki tip enpresyon ou bezwen?"
-      );
-      return;
-    }
-
-    // --------------------------
-    // AI FALLBACK
-    // --------------------------
-    const aiReply = await generateAIReply(text);
-    await sendWhatsAppMessage(from, aiReply);
 
   } catch (err) {
     logError("Webhook Processing Error:", err?.message);
   }
 }
+
+    const lower = text.toLowerCase();
+
+    if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
+      await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
+      return res.sendStatus(200);
+    }
+
+    if (lower.includes("pri") || lower.includes("price") || lower.includes("prix")) {
+      await sendWhatsAppMessage(
+        from,
+        "Pou enpresyon, pri yo depann de kalite travay la. Ki tip enpresyon ou bezwen? (kat biznis, bannè, logo, elatriye)."
+      );
+      return res.sendStatus(200);
+    }
+
+    const aiReply = await generateAIReply(text);
+    await sendWhatsAppMessage(from, aiReply);
+
+    return res.sendStatus(200);
+  }
+
 // -------------------------
 // 2. HANDLE IMAGE MESSAGE
 // -------------------------
@@ -244,8 +236,11 @@ Bòn chans ak avni ou! 🚀✨`
     await sendWhatsAppMessage(
       from,
       "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
-});
+    );
 
+  return res.sendStatus(200);
+  }
+}
   // -------------------------
   // OTHER TYPES
   // -------------------------
@@ -255,11 +250,14 @@ Bòn chans ak avni ou! 🚀✨`
     media_url: null,
     media_mime: message.type,
     raw: message
-});
+  });
 
   await sendWhatsAppMessage(
     from,
     `Mwen resevwa yon mesaj tip *${message.type}*.`
+  );
+
+  return res.sendStatus(200);
 });
 
 // --------------------------
