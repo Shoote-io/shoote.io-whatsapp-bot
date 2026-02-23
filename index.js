@@ -242,7 +242,6 @@ Bòn chans ak avni ou! 🚀✨`
       "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
     );
   }
-}
   return res.sendStatus(200);
   }
   // -------------------------
