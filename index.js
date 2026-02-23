@@ -106,23 +106,15 @@ app.post("/webhook", async (req, res) => {
   // 1. HANDLE TEXT MESSAGE
   // -------------------------
   if (message.type === "text") {
-    const text = message.text.body.trim().toLowerCase();
-    const messageId = message.id;
+    const text = message.text.body;
 
     await saveMessage({
-      message_id: messageId,
       from_number: from,
       body: text,
       media_url: null,
       media_mime: null,
       raw: message
     });
-    // 🚫 Duplicate webhook → STOP CLEANLY
-    if (insertError) {
-      log("⚠ Duplicate ignored →", messageId);
-      return;
-    }
-    log("📩 New message →", messageBody);
     const lower = text.toLowerCase();
 // ✅ COMMAND LOGIC
     if (messageBody === "action") {
