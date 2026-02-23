@@ -87,11 +87,11 @@ app.get("/webhook", (req, res) => {
 // HANDLE WEBHOOK
 // --------------------------
 app.post("/webhook", (req, res) => {
-  res.sendStatus(200); // ALWAYS FAST RESPONSE
-
+   if (condition) {
+      return res.sendStatus(200);
+   }
   handleWebhook(req.body).catch(err =>
     logError("Webhook async error:", err)
-  );
 });
 
 // --------------------------
@@ -240,11 +240,7 @@ Bòn chans ak avni ou! 🚀✨`
     await sendWhatsAppMessage(
       from,
       "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
-    );
-  }
-
-  return res.sendStatus(200);
-}
+});
 
   // -------------------------
   // OTHER TYPES
@@ -255,14 +251,11 @@ Bòn chans ak avni ou! 🚀✨`
     media_url: null,
     media_mime: message.type,
     raw: message
-  });
+});
 
   await sendWhatsAppMessage(
     from,
     `Mwen resevwa yon mesaj tip *${message.type}*.`
-  );
-
-  return res.sendStatus(200);
 });
 
 // --------------------------
