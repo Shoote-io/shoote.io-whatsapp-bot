@@ -112,7 +112,7 @@ async function handleWebhook(body) {
 
     log("TEXT DETECTED →", `"${clean}"`);
     log("MESSAGE TYPE →", message.type);
-
+  }
   try {
     const { error: insertError } = await supabase
       .from("messages")
