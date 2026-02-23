@@ -83,9 +83,6 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// --------------------------
-// HANDLE WEBHOOK
-// --------------------------
 // ------------------------------------------------- 
 //HANDLE INCOMING WHATSAPP MESSAGES 
 // ------------------------------------------------- 
@@ -115,7 +112,6 @@ async function handleWebhook(body) {
   const messageBody = message.text?.body?.trim().toLowerCase();
 
   try {
-    const messageId = message.id;
     const { error: insertError } = await supabase
       .from("messages")
       .insert([
@@ -128,7 +124,7 @@ async function handleWebhook(body) {
           raw: message,
           role: "user"
         }
-      ]);
+     ]);
     // 🚫 Duplicate webhook → STOP CLEANLY
     if (insertError) {
       log("⚠ Duplicate ignored →", messageId);
@@ -150,13 +146,13 @@ async function handleWebhook(body) {
         ]);
 
       await sendWhatsAppMessage(from, "✅ Alert detected");
+    return res.sendStatus(200); 
     }
 
   } catch (err) {
     logError("Webhook Processing Error:", err?.message);
   }
 }
-
     const lower = text.toLowerCase();
 
     if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
@@ -245,10 +241,10 @@ Bòn chans ak avni ou! 🚀✨`
       from,
       "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
     );
-
-  return res.sendStatus(200);
   }
 }
+  return res.sendStatus(200);
+  }
   // -------------------------
   // OTHER TYPES
   // -------------------------
