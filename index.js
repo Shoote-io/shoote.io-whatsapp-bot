@@ -109,7 +109,8 @@ async function handleWebhook(body) {
   const from = message.from;
   const messageId = message.id;
 
-  const messageBody = message.text?.body?.trim().toLowerCase();
+  const text = message.text?.body || "";
+  const messageBody = text.trim().toLowerCase();
 
   try {
     const { error: insertError } = await supabase
@@ -124,55 +125,46 @@ async function handleWebhook(body) {
           raw: message,
           role: "user"
         }
-     ]);
-    // 🚫 Duplicate webhook → STOP CLEANLY
+      ]);
+
     if (insertError) {
       log("⚠ Duplicate ignored →", messageId);
       return;
     }
 
-    log("📩 New message →", messageBody);
+    log("📩 New message →", `"${messageBody}"`);
 
-    // --------------------------
-    // COMMAND LOGIC
-    // --------------------------
     if (messageBody === "action") {
       log("🎬 COMMAND RECEIVED");
 
       await supabase
         .from("commands")
-        .insert([
-          { type: "action", status: "pending" }
-        ]);
+        .insert([{ type: "action", status: "pending" }]);
 
       await sendWhatsAppMessage(from, "✅ Alert detected");
-    return res.sendStatus(200); 
+      return;
     }
 
-  } catch (err) {
-    logError("Webhook Processing Error:", err?.message);
-  }
-}
-    const lower = text.toLowerCase();
+    const lower = messageBody;
 
-    if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
+    if (["hi", "hello", "salut", "bonjour", "hola", "alo"]
+          .some(x => lower.includes(x))) {
       await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
-      return res.sendStatus(200);
+      return;
     }
 
     if (lower.includes("pri") || lower.includes("price") || lower.includes("prix")) {
-      await sendWhatsAppMessage(
-        from,
-        "Pou enpresyon, pri yo depann de kalite travay la. Ki tip enpresyon ou bezwen? (kat biznis, bannè, logo, elatriye)."
-      );
-      return res.sendStatus(200);
+      await sendWhatsAppMessage(from, "Pou enpresyon, pri yo depann...");
+      return;
     }
 
     const aiReply = await generateAIReply(text);
     await sendWhatsAppMessage(from, aiReply);
 
-    return res.sendStatus(200);
+  } catch (err) {
+    logError("Webhook Processing Error:", err?.message);
   }
+}
          
 // -------------------------
 // 2. HANDLE IMAGE MESSAGE
