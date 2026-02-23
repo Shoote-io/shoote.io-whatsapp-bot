@@ -92,6 +92,9 @@ app.post("/webhook", async (req, res) => {
 "whatsapp_business_account") { 
     return res.sendStatus(404); 
   } 
+  const entry = body.entry?.[0]; 
+  const change = entry?.changes?.[0]; 
+  const message = change?.value?.messages?.[0];
 const from = message?.from; 
 if (!message) return res.sendStatus(200);
 // --------------------------
