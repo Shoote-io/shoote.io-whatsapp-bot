@@ -98,7 +98,7 @@ const change = entry?.changes?.[0];
 const message = change?.value?.messages?.[0]; 
 const from = message?.from; 
 if (!message) return res.sendStatus(200);
-  
+ }); 
 // --------------------------
 // CORE HANDLER
 // --------------------------
@@ -130,7 +130,6 @@ async function handleWebhook(body) {
           raw: message,
           role: "user"
         }
-      ]);
 
     if (insertError) {
       log("⚠ Duplicate ignored →", msgId);
