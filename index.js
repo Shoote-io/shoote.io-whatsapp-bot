@@ -1,3 +1,5 @@
+
+
 // -----------------------------------------------
 //  WhatsApp AI Bot - With Supabase Logging
 // -----------------------------------------------
@@ -139,7 +141,7 @@ async function handleWebhook(body) {
     // COMMAND LOGIC
     // --------------------------
     if (messageBody === "action") {
-      log("🎬 COMMAND DETECTED");
+      log("🎬 COMMAND RECEIVED");
 
       await supabase
         .from("commands")
@@ -147,7 +149,7 @@ async function handleWebhook(body) {
           { type: "action", status: "pending" }
         ]);
 
-      await sendWhatsAppMessage(from, "✅ Alert received");
+      await sendWhatsAppMessage(from, "✅ Alert detected");
     }
 
   } catch (err) {
