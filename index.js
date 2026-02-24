@@ -115,18 +115,9 @@ app.post("/webhook", async (req, res) => {
       media_mime: null,
       raw: message
     });
+
     const lower = text.toLowerCase();
-// ✅ COMMAND LOGIC
-    if (messageBody === "action") {
-      log("🎬 COMMAND RECEIVED");
 
-      await supabase
-        .from("commands")
-        .insert([{ type: "action", status: "pending" }]);
-
-      await sendWhatsAppMessage(from, "✅ Alert detected");
-      return;
-    }
     if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
       await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
       return res.sendStatus(200);
