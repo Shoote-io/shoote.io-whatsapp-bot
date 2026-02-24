@@ -11,7 +11,8 @@ import {
   initSupabase,
   saveMessage,
   saveReply,
-  processMediaUpload
+  processMediaUpload,
+  createCommand // ➕ nouvo
 } from "./services/supabase.js";
 
 const app = express();
@@ -57,7 +58,7 @@ async function safeSaveMessage(payload) {
 async function safeSaveReply(payload) {
   try {
     await saveReply({
-      from_number: payload.to_number,
+      to_number: payload.to_number,
       body: payload.body,
       media_url: payload.media_url ?? null,
       role: "assistant"
@@ -148,7 +149,25 @@ app.post("/webhook", async (req, res) => {
       });
 
       const lower = text.toLowerCase();
+      // 🎬 COMMAND: ACTION
+  if (lower === "action") {
+    log("🎬 ACTION COMMAND DETECTED");
 
+    try {
+      await createCommand({
+        type: "action",
+        status: "pending"
+      });
+
+      await sendWhatsAppMessage(from, "✅ Alert received");
+    } catch (err) {
+      logError("Command insert failed:", err.message);
+      await sendWhatsAppMessage(from, "⚠️ Command failed to save");
+    }
+
+    return res.sendStatus(200);
+   }
+      
       if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
         await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
         return res.sendStatus(200);
