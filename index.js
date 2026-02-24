@@ -164,7 +164,21 @@ app.post("/webhook", async (req, res) => {
       logError("Command insert failed:", err.message);
       await sendWhatsAppMessage(from, "⚠️ Command failed to save");
     }
+  // Poll pou rezilta
+  const commandId = data.id;
+  let result = null;
 
+  for (let i = 0; i < 60; i++) { // max ~5 min
+    await new Promise(r => setTimeout(r, 5000));
+    result = await getCommandResult(commandId);
+    if (result) break;
+  }
+
+  if (result) {
+    await sendWhatsAppMessage(from, `✅ Résultat:\n${result}`);
+  } else {
+    await sendWhatsAppMessage(from, "⚠️ Traitement terminé, mais aucun rapport reçu.");
+  }
     return res.sendStatus(200);
    }
       
