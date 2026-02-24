@@ -107,6 +107,21 @@ export async function createCommand({ type, status = "pending" }) {
   return data;
 }
 
+export async function getCommandResult(commandId) {
+  if (!supabaseAdmin) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("command_logs")
+    .select("message")
+    .eq("command_id", commandId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) return null;
+  return data?.message || null;
+}
+
 // --------------------------------------------------
 // CONVERSATION HISTORY
 // --------------------------------------------------
