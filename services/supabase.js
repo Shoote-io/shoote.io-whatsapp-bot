@@ -1,32 +1,30 @@
-// services/supabase.js
+// services/supabase.js (RESTORED & FIXED)
 
 import { createClient } from "@supabase/supabase-js";
 
-// 🔹 Load environment variables properly
+// 🔹 Env
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// 🔹 Bucket setup (with fallback)
+// 🔹 Bucket
 export const BUCKET = process.env.SUPABASE_MEDIA_BUCKET || "ElmidorGroup";
 
-// 🔹 Client pou frontend / public access
+// 🔹 Clients
 export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-// 🔹 Client pou backend admin (write access, bypass RLS)
 export const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
   : null;
 
-// 🔹 Initialize helper (optional)
+// 🔹 Init
 export function initSupabase() {
   console.log("🗄️ Supabase initialized");
   return supabaseAdmin;
 }
 
-// 🔹 Helper pou verify envs ok
 export function checkSupabaseConfig() {
   if (!SUPABASE_URL) console.error("❌ Missing SUPABASE_URL variable");
   if (!SUPABASE_ANON_KEY) console.error("❌ Missing SUPABASE_ANON_KEY variable");
@@ -34,18 +32,24 @@ export function checkSupabaseConfig() {
   if (!BUCKET) console.warn("⚠ Using default bucket 'ElmidorGroup'");
 }
 
-/**
- * Save incoming message record
- * message = { message_id, from_number, body, media_url, media_mime, raw }
- */
+// --------------------------------------------------
+// MESSAGES
+// --------------------------------------------------
 export async function saveMessage(message) {
-  if (!supabase) return null;
+  if (!supabaseAdmin) return null;
 
-  const { data, error } = await supabase
+  const payload = {
+    from_number: message.from_number,
+    body: message.body ?? null,
+    media_url: message.media_url ?? null,
+    media_mime: message.media_mime ?? null,
+    raw: message.raw ?? {},
+    role: message.role || "user"
+  };
+
+  const { data, error } = await supabaseAdmin
     .from("messages")
-    .upsert(message, {
-      onConflict: "message_id"
-    });
+    .insert([payload]);
 
   if (error) {
     console.error("saveMessage error:", error.message);
@@ -55,16 +59,22 @@ export async function saveMessage(message) {
   return data;
 }
 
-/**
- * Save bot reply record
- * reply = { to_number, body, media_url }
- */
+// --------------------------------------------------
+// REPLIES
+// --------------------------------------------------
 export async function saveReply(reply) {
-  if (!supabase) return null;
+  if (!supabaseAdmin) return null;
 
-  const { data, error } = await supabase
+  const payload = {
+    to_number: reply.to_number,
+    body: reply.body,
+    media_url: reply.media_url ?? null,
+    role: reply.role || "assistant"
+  };
+
+  const { data, error } = await supabaseAdmin
     .from("replies")
-    .insert([reply]);
+    .insert([payload]);
 
   if (error) {
     console.error("saveReply error:", error);
@@ -74,14 +84,36 @@ export async function saveReply(reply) {
   return data;
 }
 
-/**
- * Get last N messages for a user (by from_number)
- * returns array oldest->newest
- */
-export async function getConversation(userNumber, limit = 8) {
-  if (!supabaseAdmin.storage) return [];
+// --------------------------------------------------
+// COMMANDS (NEW FEATURE)
+// --------------------------------------------------
+export async function createCommand({ type, status = "pending" }) {
+  if (!supabaseAdmin) return null;
 
-  const { data, error } = await supabaseAdmin.storage
+  const { data, error } = await supabaseAdmin
+    .from("commands")
+    .insert([
+      {
+        type,
+        status
+      }
+    ]);
+
+  if (error) {
+    console.error("createCommand error:", error.message);
+    return null;
+  }
+
+  return data;
+}
+
+// --------------------------------------------------
+// CONVERSATION HISTORY
+// --------------------------------------------------
+export async function getConversation(userNumber, limit = 8) {
+  if (!supabaseAdmin) return [];
+
+  const { data, error } = await supabaseAdmin
     .from("messages")
     .select("from_number, body, created_at, role")
     .eq("from_number", userNumber)
@@ -96,20 +128,19 @@ export async function getConversation(userNumber, limit = 8) {
   return data ? data.reverse() : [];
 }
 
-/**
- * Upload media buffer to Supabase storage bucket and return public URL
- */
+// --------------------------------------------------
+// STORAGE: UPLOAD MEDIA
+// --------------------------------------------------
 export async function uploadMediaToStorage(path, fileBuffer, contentType) {
-  if (!supabase) throw new Error("Supabase not initialized");
+  if (!supabaseAdmin) throw new Error("Supabase not initialized");
 
   console.log("📦 Uploading to:", path);
 
-  // Step 1 — upload file
-  const { data, error } = await supabaseAdmin.storage
-    .from("ElmidorGroup")
+  const { error } = await supabaseAdmin.storage
+    .from(BUCKET)
     .upload(path, fileBuffer, {
       contentType,
-      upsert: true // allow overwrites
+      upsert: true
     });
 
   if (error) {
@@ -117,9 +148,8 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
     throw error;
   }
 
-  // Step 2 — generate public URL
   const { data: urlData } = supabaseAdmin.storage
-    .from("ElmidorGroup")
+    .from(BUCKET)
     .getPublicUrl(path);
 
   const url = urlData?.publicUrl || null;
@@ -129,16 +159,22 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
   return url;
 }
 
-/**
- * Save media upload to media_logs table
- * logEntry = { user_number, file_path, mime_type, public_url }
- */
+// --------------------------------------------------
+// MEDIA LOGGING
+// --------------------------------------------------
 export async function saveMediaLog(logEntry) {
   if (!supabaseAdmin) return null;
 
+  const payload = {
+    user_number: logEntry.user_number,
+    file_path: logEntry.file_path,
+    mime_type: logEntry.mime_type,
+    public_url: logEntry.public_url
+  };
+
   const { data, error } = await supabaseAdmin
     .from("media_logs")
-    .insert([logEntry]);
+    .insert([payload]);
 
   if (error) {
     console.error("saveMediaLog error:", error);
@@ -148,14 +184,13 @@ export async function saveMediaLog(logEntry) {
   return data;
 }
 
-/**
- * Upload file + write record to media_logs
- */
+// --------------------------------------------------
+// PROCESS MEDIA (UPLOAD + LOG)
+// --------------------------------------------------
 export async function processMediaUpload(userNumber, fileName, buffer, mimeType) {
   try {
-    const filePath = `${BUCKET}/${userNumber}/${fileName}`;
+    const filePath = `${userNumber}/${fileName}`;
 
-    // Upload file
     const publicUrl = await uploadMediaToStorage(filePath, buffer, mimeType);
 
     if (!publicUrl) {
@@ -163,7 +198,6 @@ export async function processMediaUpload(userNumber, fileName, buffer, mimeType)
       return null;
     }
 
-    // Log into DB
     const mediaRecord = {
       user_number: userNumber,
       file_path: filePath,
@@ -179,4 +213,3 @@ export async function processMediaUpload(userNumber, fileName, buffer, mimeType)
     return null;
   }
 }
-
