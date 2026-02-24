@@ -1,6 +1,6 @@
-
 // -----------------------------------------------
-//  WhatsApp AI Bot - With Supabase Logging
+//  WhatsApp AI Bot - Restored & Structured Version
+//  (Supabase Logging + Robust Error Handling)
 // -----------------------------------------------
 
 import express from "express";
@@ -11,8 +11,6 @@ import {
   initSupabase,
   saveMessage,
   saveReply,
-  uploadMediaToStorage,
-  saveMediaLog,          // ➕ ADD
   processMediaUpload
 } from "./services/supabase.js";
 
@@ -38,6 +36,37 @@ const logError = (...x) => console.error("⛔", ...x);
 // --------------------------
 initSupabase();
 
+// -------------------------------------------------
+//  SAFE DB HELPERS
+// -------------------------------------------------
+async function safeSaveMessage(payload) {
+  try {
+    await saveMessage({
+      from_number: payload.from_number,
+      body: payload.body ?? null,
+      media_url: payload.media_url ?? null,
+      media_mime: payload.media_mime ?? null,
+      raw: JSON.parse(JSON.stringify(payload.raw || {})),
+      role: "user"
+    });
+  } catch (err) {
+    logError("DB saveMessage failed:", err?.message);
+  }
+}
+
+async function safeSaveReply(payload) {
+  try {
+    await saveReply({
+      from_number: payload.to_number,
+      body: payload.body,
+      media_url: payload.media_url ?? null,
+      role: "assistant"
+    });
+  } catch (err) {
+    logError("DB saveReply failed:", err?.message);
+  }
+}
+
 // -----------------------------
 //  Send WhatsApp Message
 // -----------------------------
@@ -56,8 +85,7 @@ async function sendWhatsAppMessage(to, message) {
       }),
     });
 
-    // Save bot reply
-    await saveReply({
+    await safeSaveReply({
       to_number: to,
       body: message,
       media_url: null
@@ -89,101 +117,97 @@ app.get("/webhook", (req, res) => {
 //  HANDLE INCOMING WHATSAPP MESSAGES
 // -------------------------------------------------
 app.post("/webhook", async (req, res) => {
-  const body = req.body;
-
-  if (body.object !== "whatsapp_business_account") {
-    return res.sendStatus(404);
-  }
-
-  const entry = body.entry?.[0];
-  const change = entry?.changes?.[0];
-  const message = change?.value?.messages?.[0];
-  const from = message?.from;
-
-  if (!message) return res.sendStatus(200);
-
-  // -------------------------
-  // 1. HANDLE TEXT MESSAGE
-  // -------------------------
-  if (message.type === "text") {
-    const text = message.text.body;
-
-    await saveMessage({
-      from_number: from,
-      body: text,
-      media_url: null,
-      media_mime: null,
-      raw: message
-    });
-
-    const lower = text.toLowerCase();
-
-    if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
-      await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
-      return res.sendStatus(200);
-    }
-
-    if (lower.includes("pri") || lower.includes("price") || lower.includes("prix")) {
-      await sendWhatsAppMessage(
-        from,
-        "Pou enpresyon, pri yo depann de kalite travay la. Ki tip enpresyon ou bezwen? (kat biznis, bannè, logo, elatriye)."
-      );
-      return res.sendStatus(200);
-    }
-
-    const aiReply = await generateAIReply(text);
-    await sendWhatsAppMessage(from, aiReply);
-
-    return res.sendStatus(200);
-  }
-
-// -------------------------
-// 2. HANDLE IMAGE MESSAGE
-// -------------------------
-if (message.type === "image") {
   try {
-    const mediaId = message.image.id;
+    const body = req.body;
 
-    // Step 1 – Fetch media metadata
-    const mediaResp = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
-      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-    });
-    const meta = await mediaResp.json();
+    if (body.object !== "whatsapp_business_account") {
+      return res.sendStatus(404);
+    }
 
-    const mediaUrl = meta.url;
-    const mimeType = meta.mime_type || "image/jpeg";
+    const entry = body.entry?.[0];
+    const change = entry?.changes?.[0];
+    const message = change?.value?.messages?.[0];
+    const from = message?.from;
 
-    // Step 2 – Download file binary
-    const raw = await fetch(mediaUrl, {
-      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-    });
-    const buffer = Buffer.from(await raw.arrayBuffer());
+    if (!message) return res.sendStatus(200);
 
-    // Step 3 – Upload + Log
-    const filename = `${Date.now()}.jpg`;
+    log("📩 Incoming:", message.type, "from:", from);
 
-    const mediaRecord = await processMediaUpload(
-      from,
-      filename,
-      buffer,
-      mimeType
-    );
+    // -------------------------
+    // 1. HANDLE TEXT MESSAGE
+    // -------------------------
+    if (message.type === "text") {
+      const text = message.text.body;
 
-    const publicUrl = mediaRecord?.public_url || null;
+      await safeSaveMessage({
+        from_number: from,
+        body: text,
+        media_url: null,
+        media_mime: null,
+        raw: message
+      });
 
-    // Step 4 – Save incoming message log
-    await saveMessage({
-      from_number: from,
-      body: null,
-      media_url: publicUrl,
-      media_mime: mimeType,
-      raw: message
-    });
+      const lower = text.toLowerCase();
 
-    // Step 5 – Reply
-    await sendWhatsAppMessage(
-      from,
-      `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
+      if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
+        await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
+        return res.sendStatus(200);
+      }
+
+      if (lower.includes("pri") || lower.includes("price") || lower.includes("prix")) {
+        await sendWhatsAppMessage(
+          from,
+          "Pou enpresyon, pri yo depann de kalite travay la. Ki tip enpresyon ou bezwen? (kat biznis, bannè, logo, elatriye)."
+        );
+        return res.sendStatus(200);
+      }
+
+      const aiReply = await generateAIReply(text);
+      await sendWhatsAppMessage(from, aiReply);
+
+      return res.sendStatus(200);
+    }
+
+    // -------------------------
+    // 2. HANDLE IMAGE MESSAGE
+    // -------------------------
+    if (message.type === "image") {
+      try {
+        const mediaId = message.image.id;
+
+        // Step 1 – Fetch media metadata
+        const mediaResp = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
+          headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+        });
+        const meta = await mediaResp.json();
+
+        const mediaUrl = meta.url;
+        const mimeType = meta.mime_type || "image/jpeg";
+
+        // Step 2 – Download file binary
+        const rawFile = await fetch(mediaUrl, {
+          headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+        });
+        const buffer = Buffer.from(await rawFile.arrayBuffer());
+
+        // Step 3 – Upload + Get Public URL
+        const filename = `${Date.now()}.jpg`;
+        const mediaRecord = await processMediaUpload(from, filename, buffer, mimeType);
+        const publicUrl = mediaRecord?.public_url || null;
+
+        // Step 4 – Save incoming message log
+        await safeSaveMessage({
+          from_number: from,
+          body: null,
+          media_url: publicUrl,
+          media_mime: mimeType,
+          raw: message
+        });
+
+        // Step 5 – Reply
+        await sendWhatsAppMessage(
+          from,
+          `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
 
 Nou konfime resevwa screenshot ou a.  
 
@@ -194,37 +218,42 @@ Tanpri ranpli fòm ofisyèl enskripsyon an pou valide patisipasyon ou:
 
 Apre ou fin ranpli li, n ap voye règleman yo + etap final yo.  
 Bòn chans ak avni ou! 🚀✨`
-    );
+        );
 
-  } catch (err) {
-    console.error("🔥 Fatal error in image handling BUT BOT LIVES:", err.message);
+      } catch (err) {
+        logError("Image handling error:", err?.message);
+
+        await sendWhatsAppMessage(
+          from,
+          "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
+        );
+      }
+
+      return res.sendStatus(200);
+    }
+
+    // -------------------------
+    // 3. HANDLE OTHER TYPES
+    // -------------------------
+    await safeSaveMessage({
+      from_number: from,
+      body: null,
+      media_url: null,
+      media_mime: message.type,
+      raw: message
+    });
 
     await sendWhatsAppMessage(
       from,
-      "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
+      `Mwen resevwa yon mesaj tip *${message.type}*.`
     );
+
+    return res.sendStatus(200);
+
+  } catch (err) {
+    logError("🔥 Fatal webhook error:", err?.message);
+    return res.sendStatus(200);
   }
-
-  return res.sendStatus(200);
-}
-
-  // -------------------------
-  // OTHER TYPES
-  // -------------------------
-  await saveMessage({
-    from_number: from,
-    body: null,
-    media_url: null,
-    media_mime: message.type,
-    raw: message
-  });
-
-  await sendWhatsAppMessage(
-    from,
-    `Mwen resevwa yon mesaj tip *${message.type}*.`
-  );
-
-  return res.sendStatus(200);
 });
 
 // --------------------------
