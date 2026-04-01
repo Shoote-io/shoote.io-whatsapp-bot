@@ -98,6 +98,20 @@ async function sendWhatsAppMessage(to, message) {
   }
 }
 
+async function getMachineIdByPhone(phone) {
+  const { data, error } = await supabaseAdmin
+    .from("clients")
+    .select("machine_id")
+    .eq("phone_number", phone)
+    .single();
+
+  if (error) {
+    console.error("Machine lookup error:", error.message);
+    return null;
+  }
+
+  return data?.machine_id || null;
+}
 // -------------------------------------------------
 //  VERIFY WEBHOOK
 // -------------------------------------------------
@@ -151,36 +165,55 @@ app.post("/webhook", async (req, res) => {
       const lower = text.toLowerCase();
       // 🎬 COMMAND: ACTION
   if (lower === "action") {
-    log("🎬 ACTION COMMAND DETECTED");
+  log("🎬 ACTION COMMAND DETECTED");
 
-    try {
-      await createCommand({
-        type: "action",
-        status: "pending"
-      });
+  try {
 
-      await sendWhatsAppMessage(from, "✅ Alert received");
-    } catch (err) {
-      logError("Command insert failed:", err.message);
-      await sendWhatsAppMessage(from, "⚠️ Command failed to save");
+    // 🔥 GET MACHINE ID
+    const machineId = await getMachineIdByPhone(from);
+
+    if (!machineId) {
+      await sendWhatsAppMessage(from, "❌ Machine not linked to this number.");
+      return res.sendStatus(200);
     }
-  // Poll pou rezilta
-  const commandId = data.id;
-  let result = null;
 
-  for (let i = 0; i < 60; i++) { // max ~5 min
-    await new Promise(r => setTimeout(r, 5000));
-    result = await getCommandResult(commandId);
-    if (result) break;
+    // 🔥 CREATE COMMAND
+    const { data, error } = await createCommand({
+      machine_id: machineId,
+      type: "media",
+      status: "pending",
+      source_phone: from
+    });
+
+    if (error) throw error;
+
+    const commandId = data[0].id;
+
+    await sendWhatsAppMessage(from, "✅ Command sent");
+
+    // 🔁 POLLING RESULT
+    let result = null;
+
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+
+      result = await getCommandResult(commandId);
+      if (result) break;
+    }
+
+    if (result) {
+      await sendWhatsAppMessage(from, `✅ Résultat:\n${result}`);
+    } else {
+      await sendWhatsAppMessage(from, "⚠️ No result received.");
+    }
+
+  } catch (err) {
+    logError("Command insert failed:", err.message);
+    await sendWhatsAppMessage(from, "⚠️ Command failed.");
   }
 
-  if (result) {
-    await sendWhatsAppMessage(from, `✅ Résultat:\n${result}`);
-  } else {
-    await sendWhatsAppMessage(from, "⚠️ Traitement terminé, mais aucun rapport reçu.");
-  }
-    return res.sendStatus(200);
-   }
+  return res.sendStatus(200);
+}
       
       if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
         await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
