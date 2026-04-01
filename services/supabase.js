@@ -87,26 +87,38 @@ export async function saveReply(reply) {
 // --------------------------------------------------
 // COMMANDS (NEW FEATURE)
 // --------------------------------------------------
-export async function createCommand({ type, status = "pending" }) {
+export async function createCommand({
+  machine_id,
+  type,
+  status = "pending",
+  source_phone = null,
+  payload = null
+}) {
+  
   if (!supabaseAdmin) return null;
+  const payload = {
+    machine_id,
+    type,
+    status,
+    source_phone,
+    payload
+  };
 
   const { data, error } = await supabaseAdmin
     .from("commands")
-    .insert([
-      {
-        type,
-        status
-      }
-    ]);
+    .insert([payload])
+    .select(); // ⚠️ VERY IMPORTANT
 
   if (error) {
     console.error("createCommand error:", error.message);
     return null;
   }
-
+if (!machine_id) {
+  console.error("❌ Missing machine_id");
+  return null;
+}
   return data;
 }
-
 export async function getCommandResult(commandId) {
   if (!supabaseAdmin) return null;
 
