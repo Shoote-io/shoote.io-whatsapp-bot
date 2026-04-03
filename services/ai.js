@@ -7,12 +7,22 @@ import axios from "axios";
 const GROQ_KEY = process.env.GROQ_API_KEY;
 const API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-export async function generateAIReply(userText) {
+export async function generateAIReply(userText, options = {}) {
   try {
     if (!GROQ_KEY) {
       console.error("Missing GROQ_API_KEY!");
       return "Konfigirasyon AI a pa anfòm kounye a.";
     }
+
+    const { isCommand = false } = options;
+
+    // COMMAND BYPASS (let system handle commands)
+    if (isCommand) {
+      return null;
+    }
+
+    // limit input size (performance)
+    const safeText = (userText || "").slice(0, 500);
 
     const response = await axios.post(
       API_URL,
@@ -20,8 +30,8 @@ export async function generateAIReply(userText) {
         model: "llama-3.1-8b-instant",
         messages: [
           {
-  role: "system",
-  content: `
+            role: "system",
+            content: `
 Ou se yon asistan pwofesyonel Elmidor Group. Ou reponn senp, kle, kout, pwofesyonel, epi ou ede moun antre rapid nan challenge la.
 
 INFO OFISYEL OU DWE SERVI
@@ -39,35 +49,9 @@ Elmidor Influence & Entrepreneurship Challenge (Desanm 2025):
   - 1 moun enterese nan workflow Elmidor Group
 - Chak round reyisi = 20 USD.
 - Fom enskripsyon ofisyel: https://tally.so/r/Zj9A1z
-
-KIJAN OU DWE REYAJI (OBLIGATWA)
-
-1. Si itilizate a ekri mo ki gen rapo ak challenge, enskri, form, fom, inscription, registro, join, participate, kijan pou antre, registration:
-   - Ou dwe reponn selon sa ou jwenn nan https://www.facebook.com/share/p/1AYV3GENFG/ swiv ekzanp model sa:
-     Men fòm enskripsyon ofisyèl pou patisipe nan Elmidor Group Challenge lan:
-     https://tally.so/r/Zj9A1z
-     Apre ou ranpli li, w ap resevwa regleman yo ak etap pou valide patisipasyon ou.
-
-2. Si itilizate a mande kisa Elmidor Group ye:
-   - Bay yon repons kout epi voye lyen sit la.
-
-3. Toujou reponn:
-   - 2 a 4 fraz
-   - Senp, kle, direk
-   - Pa depase 300 karakte
-
-4. Pa janm envante enfomasyon. Sèvi sèlman ak resous:
-   - https://www.elmidorgroup.com
-   - https://www.facebook.com/share/p/1AYV3GENFG/
-
-5. Si kesyon itilizate a pa kle:
-   - Poze yon sèl kesyon pou klarifikasyon.
-
-TON & STYLE:
-Pwofesyonel, pozitif, direk, kout, fasil pou li, toujou ede itilizate a avanse nan pwochen etap la.
 `
-},
-          { role: "user", content: userText }
+          },
+          { role: "user", content: safeText }
         ],
         temperature: 0.7,
         max_tokens: 300
@@ -76,14 +60,22 @@ Pwofesyonel, pozitif, direk, kout, fasil pou li, toujou ede itilizate a avanse n
         headers: {
           Authorization: `Bearer ${GROQ_KEY}`,
           "Content-Type": "application/json"
-        }
+        },
+        timeout: 10000
       }
     );
 
-    return response.data?.choices?.[0]?.message?.content?.trim()
-      || "Mwen pa jwenn repons nan AI a.";
+    const content = response?.data?.choices?.[0]?.message?.content;
+
+    if (!content) {
+      console.warn("AI empty response");
+      return "Mwen pa jwenn repons nan AI a.";
+    }
+
+    return content.trim();
+
   } catch (error) {
-    console.error("AI Error:", error.message);
+    console.error("AI Error:", error.response?.data || error.message);
     return "Gen yon pwoblèm ak sèvè AI a.";
   }
 }
