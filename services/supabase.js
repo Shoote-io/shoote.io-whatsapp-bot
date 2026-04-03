@@ -59,17 +59,16 @@ export async function saveMessage(message) {
   };
 
   const { data, error } = await supabaseAdmin
-    .from("messages")
-    .insert([payload]);
+  .from("messages")
+  .insert([payload])
+  .select();
 
-  if (error) {
-    console.error("saveMessage error:", error.message);
-    return null;
-  }
-
-  return data;
+if (error) {
+  console.error("❌ saveMessage FULL error:", error);
+  return null;
 }
 
+console.log("✅ Message inserted:", data);
 // --------------------------------------------------
 // REPLIES
 // --------------------------------------------------
@@ -87,17 +86,16 @@ export async function saveReply(reply) {
   };
 
   const { data, error } = await supabaseAdmin
-    .from("replies")
-    .insert([payload]);
+  .from("replies")
+  .insert([payload])
+  .select();
 
-  if (error) {
-    console.error("saveReply error:", error.message);
-    return null;
-  }
-
-  return data;
+if (error) {
+  console.error("❌ saveReply FULL error:", error);
+  return null;
 }
 
+console.log("✅ Reply inserted:", data);
 // --------------------------------------------------
 // COMMANDS (NEW FEATURE)
 // --------------------------------------------------
