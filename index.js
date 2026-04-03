@@ -205,8 +205,7 @@ app.post("/webhook", async (req, res) => {
       });
 
       // 🎬 COMMAND DETECTION (IMPROVED)
-      // ADD
-if (lower === "install media" || lower === "run media") {
+if (lower === "run service" || lower === "install tools" || lower === "install workers") {
   log("🎬 ACTION COMMAND DETECTED");
 
   try {
@@ -226,27 +225,18 @@ if (lower === "install media" || lower === "run media") {
       run_after: "media"
     };
 
-    const fs = require("fs");
-
-function sendToOS(command) {
-  const dir = "C:/ElmidorOS/00_SYSTEM/install/";
-  const file = dir + "cmd_" + Date.now() + ".json";
-
-  fs.writeFileSync(file, JSON.stringify(command, null, 2));
-
-  console.log("📦 Command written to OS:", file);
-}
     // 1. Save in DB (OK)
 const data = await createCommand({
   machine_id: machineId,
-  type: "install_media",
+  type: "install_script",
+  script_name: payload.name,
+  script_url: payload.url,
+  target: payload.target,
   status: "pending",
   source_phone: from,
-  payload
+  source_type: "whatsapp",
+  payload: JSON.stringify(payload)
 });
-
-// 2. 🔥 SEND TO OS (ENPÒTAN)
-sendToOS(payload);
 
     if (!data) throw new Error("Command creation failed");
 
