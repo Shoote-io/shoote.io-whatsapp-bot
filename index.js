@@ -44,29 +44,45 @@ initSupabase();
 // -------------------------------------------------
 //  SAFE DB HELPERS
 // -------------------------------------------------
+// REPLACE
 async function safeSaveMessage(payload) {
   try {
-    await saveMessage({
+    const result = await saveMessage({
       from_number: payload.from_number,
       body: payload.body ?? null,
       media_url: payload.media_url ?? null,
       media_mime: payload.media_mime ?? null,
-      raw: JSON.parse(JSON.stringify(payload.raw || {})),
+      raw: payload.raw || {}, // ✅ FIX (remove risky JSON hack)
       role: "user"
     });
+
+    if (!result) {
+      logError("❌ saveMessage returned NULL");
+    } else {
+      console.log("✅ Message saved");
+    }
+
   } catch (err) {
     logError("DB saveMessage failed:", err?.message);
   }
 }
 
+// REPLACE
 async function safeSaveReply(payload) {
   try {
-    await saveReply({
+    const result = await saveReply({
       to_number: payload.to_number,
       body: payload.body,
       media_url: payload.media_url ?? null,
       role: "assistant"
     });
+
+    if (!result) {
+      logError("❌ saveReply returned NULL");
+    } else {
+      console.log("✅ Reply saved");
+    }
+
   } catch (err) {
     logError("DB saveReply failed:", err?.message);
   }
@@ -78,6 +94,8 @@ async function safeSaveReply(payload) {
 async function sendWhatsAppMessage(to, message) {
   try {
     if (!message) return; // ADD (prevent empty send)
+    // ADD before fetch
+console.log("📤 Sending message:", message);
 
     await fetch(
       `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`,
