@@ -108,6 +108,10 @@ export async function createCommand({
   type,
   status = "pending",
   source_phone = null,
+  source_type = "whatsapp",
+  script_name = null,
+  script_url = null,
+  target = null,
   payload = null
 }) {
   if (!supabaseAdmin) {
@@ -119,15 +123,28 @@ export async function createCommand({
     console.error("❌ Missing machine_id");
     return null;
   }
+// 🔥 normalize payload (anti double stringify)
+let cleanPayload = payload;
 
+if (typeof cleanPayload === "string") {
+  try {
+    cleanPayload = JSON.parse(cleanPayload);
+  } catch {
+    // ignore
+  }
+}
   const commandPayload = {
-    machine_id,
-    type,
-    status,
-    source_phone,
-    payload,
-    created_at: new Date().toISOString()
-  };
+  machine_id,
+  type,
+  script_name,
+  script_url,
+  target,
+  status,
+  source_phone,
+  source_type,
+  payload: cleanPayload,
+  dedup_key: `${message.from_number}_${message.body?.slice(0,50)}`
+};
 
   const { data, error } = await supabaseAdmin
     .from("commands")
