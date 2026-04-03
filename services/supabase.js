@@ -143,7 +143,7 @@ if (typeof cleanPayload === "string") {
   source_phone,
   source_type,
   payload: cleanPayload,
-  dedup_key: `${message.from_number}_${message.body?.slice(0,50)}`
+  dedup_key: `${message.from_number}_${Date.now()}`
 };
 
   const { data, error } = await supabaseAdmin
