@@ -205,39 +205,49 @@ app.post("/webhook", async (req, res) => {
       });
 
       // 🎬 COMMAND DETECTION (IMPROVED)
-      if (lower.includes("action") || lower.includes("run")) {
-        log("🎬 ACTION COMMAND DETECTED");
+      // ADD
+if (lower.includes("action") || lower.includes("run")) {
+  log("🎬 ACTION COMMAND DETECTED");
 
-        try {
-          const machineId = await getMachineIdByPhone(from);
+  try {
+    const machineId = await getMachineIdByPhone(from);
 
-          if (!machineId) {
-            await sendWhatsAppMessage(from, "❌ Machine not linked to this number.");
-            return res.sendStatus(200);
-          }
+    if (!machineId) {
+      await sendWhatsAppMessage(from, "❌ Machine not linked to this number.");
+      return res.sendStatus(200);
+    }
 
-          const data = await createCommand({
-            machine_id: machineId,
-            type: "media",
-            status: "pending",
-            source_phone: from
-          });
+    // ADD (payload for OS)
+    const payload = {
+      action: "install_script",
+      name: "master-media",
+      url: "https://raw.githubusercontent.com/USER/REPO/main/master-media.ps1",
+      target: "tools",
+      run_after: "media"
+    };
 
-          if (!data) throw new Error("Command creation failed");
+    const data = await createCommand({
+      machine_id: machineId,
+      type: "install_media", // MODIFY (pi klè)
+      status: "pending",
+      source_phone: from,
+      payload // ADD
+    });
 
-          await sendWhatsAppMessage(
-            from,
-            "✅ Command lan voye. Ou pral resevwa rezilta byento."
-          );
+    if (!data) throw new Error("Command creation failed");
 
-        } catch (err) {
-          logError("Command insert failed:", err.message);
-          await sendWhatsAppMessage(from, "⚠️ Command failed.");
-        }
+    await sendWhatsAppMessage(
+      from,
+      "✅ Command lan voye. System lan ap prepare media module la..."
+    );
 
-        return res.sendStatus(200);
-      }
+  } catch (err) {
+    logError("Command insert failed:", err.message);
+    await sendWhatsAppMessage(from, "⚠️ Command failed.");
+  }
 
+  return res.sendStatus(200);
+}
       if (
         ["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x =>
           lower.includes(x)
