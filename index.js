@@ -12,7 +12,8 @@ import {
   saveMessage,
   saveReply,
   processMediaUpload,
-  createCommand // ➕ nouvo
+  createCommand,
+  supabaseAdmin // ADD
 } from "./services/supabase.js";
 
 const app = express();
@@ -31,6 +32,9 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 // --------------------------
 const log = (...x) => console.log("🟦", ...x);
 const logError = (...x) => console.error("⛔", ...x);
+
+// ADD (dedup protection)
+const processedMessages = new Set();
 
 // --------------------------
 //  Init Supabase
@@ -73,18 +77,23 @@ async function safeSaveReply(payload) {
 // -----------------------------
 async function sendWhatsAppMessage(to, message) {
   try {
-    await fetch(`https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to,
-        text: { body: message },
-      }),
-    });
+    if (!message) return; // ADD (prevent empty send)
+
+    await fetch(
+      `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to,
+          text: { body: message }
+        })
+      }
+    );
 
     await safeSaveReply({
       to_number: to,
@@ -99,19 +108,25 @@ async function sendWhatsAppMessage(to, message) {
 }
 
 async function getMachineIdByPhone(phone) {
-  const { data, error } = await supabaseAdmin
-    .from("clients")
-    .select("machine_id")
-    .eq("phone_number", phone)
-    .single();
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("clients")
+      .select("machine_id")
+      .eq("phone_number", phone)
+      .single();
 
-  if (error) {
-    console.error("Machine lookup error:", error.message);
+    if (error) {
+      console.error("Machine lookup error:", error.message);
+      return null;
+    }
+
+    return data?.machine_id || null;
+  } catch (err) {
+    console.error("Machine lookup failed:", err.message);
     return null;
   }
-
-  return data?.machine_id || null;
 }
+
 // -------------------------------------------------
 //  VERIFY WEBHOOK
 // -------------------------------------------------
@@ -129,7 +144,7 @@ app.get("/webhook", (req, res) => {
 });
 
 // -------------------------------------------------
-//  HANDLE INCOMING WHATSAPP MESSAGES
+//  HANDLE INCOMING WHATSAPP MESSAGES (PART 2 FIXED)
 // -------------------------------------------------
 app.post("/webhook", async (req, res) => {
   try {
@@ -146,13 +161,22 @@ app.post("/webhook", async (req, res) => {
 
     if (!message) return res.sendStatus(200);
 
+    // ADD (dedup protection)
+    const messageId = message.id;
+    if (processedMessages.has(messageId)) {
+      log("⚠️ Duplicate skipped:", messageId);
+      return res.sendStatus(200);
+    }
+    processedMessages.add(messageId);
+
     log("📩 Incoming:", message.type, "from:", from);
 
     // -------------------------
     // 1. HANDLE TEXT MESSAGE
     // -------------------------
     if (message.type === "text") {
-      const text = message.text.body;
+      const text = (message.text.body || "").trim();
+      const lower = text.toLowerCase();
 
       await safeSaveMessage({
         from_number: from,
@@ -162,65 +186,57 @@ app.post("/webhook", async (req, res) => {
         raw: message
       });
 
-      const lower = text.toLowerCase();
-      // 🎬 COMMAND: ACTION
-  if (lower === "action") {
-  log("🎬 ACTION COMMAND DETECTED");
+      // 🎬 COMMAND DETECTION (IMPROVED)
+      if (lower.includes("action") || lower.includes("run")) {
+        log("🎬 ACTION COMMAND DETECTED");
 
-  try {
+        try {
+          const machineId = await getMachineIdByPhone(from);
 
-    // 🔥 GET MACHINE ID
-    const machineId = await getMachineIdByPhone(from);
+          if (!machineId) {
+            await sendWhatsAppMessage(from, "❌ Machine not linked to this number.");
+            return res.sendStatus(200);
+          }
 
-    if (!machineId) {
-      await sendWhatsAppMessage(from, "❌ Machine not linked to this number.");
-      return res.sendStatus(200);
-    }
+          const data = await createCommand({
+            machine_id: machineId,
+            type: "media",
+            status: "pending",
+            source_phone: from
+          });
 
-    // 🔥 CREATE COMMAND
-    const { data, error } = await createCommand({
-      machine_id: machineId,
-      type: "media",
-      status: "pending",
-      source_phone: from
-    });
+          if (!data) throw new Error("Command creation failed");
 
-    if (error) throw error;
+          await sendWhatsAppMessage(
+            from,
+            "✅ Command lan voye. Ou pral resevwa rezilta byento."
+          );
 
-    const commandId = data[0].id;
+        } catch (err) {
+          logError("Command insert failed:", err.message);
+          await sendWhatsAppMessage(from, "⚠️ Command failed.");
+        }
 
-    await sendWhatsAppMessage(from, "✅ Command sent");
-
-    // 🔁 POLLING RESULT
-    let result = null;
-
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 5000));
-
-      result = await getCommandResult(commandId);
-      if (result) break;
-    }
-
-    if (result) {
-      await sendWhatsAppMessage(from, `✅ Résultat:\n${result}`);
-    } else {
-      await sendWhatsAppMessage(from, "⚠️ No result received.");
-    }
-
-  } catch (err) {
-    logError("Command insert failed:", err.message);
-    await sendWhatsAppMessage(from, "⚠️ Command failed.");
-  }
-
-  return res.sendStatus(200);
-}
-      
-      if (["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x => lower.includes(x))) {
-        await sendWhatsAppMessage(from, "Bonjou! Kijan mwen ka ede w jodi a?");
         return res.sendStatus(200);
       }
 
-      if (lower.includes("pri") || lower.includes("price") || lower.includes("prix")) {
+      if (
+        ["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x =>
+          lower.includes(x)
+        )
+      ) {
+        await sendWhatsAppMessage(
+          from,
+          "Bonjou! Kijan mwen ka ede w jodi a?"
+        );
+        return res.sendStatus(200);
+      }
+
+      if (
+        lower.includes("pri") ||
+        lower.includes("price") ||
+        lower.includes("prix")
+      ) {
         await sendWhatsAppMessage(
           from,
           "Pou enpresyon, pri yo depann de kalite travay la. Ki tip enpresyon ou bezwen? (kat biznis, bannè, logo, elatriye)."
@@ -229,51 +245,74 @@ app.post("/webhook", async (req, res) => {
       }
 
       const aiReply = await generateAIReply(text);
-      await sendWhatsAppMessage(from, aiReply);
+
+      if (aiReply) {
+        await sendWhatsAppMessage(from, aiReply);
+      }
 
       return res.sendStatus(200);
     }
-
     // -------------------------
-    // 2. HANDLE IMAGE MESSAGE
-    // -------------------------
-    if (message.type === "image") {
-      try {
-        const mediaId = message.image.id;
+// 2. HANDLE IMAGE MESSAGE
+// -------------------------
+if (message.type === "image") {
+  try {
+    const mediaId = message.image.id;
 
-        // Step 1 – Fetch media metadata
-        const mediaResp = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
-          headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-        });
-        const meta = await mediaResp.json();
+    if (!mediaId) {
+      logError("Missing mediaId");
+      return res.sendStatus(200);
+    }
 
-        const mediaUrl = meta.url;
-        const mimeType = meta.mime_type || "image/jpeg";
+    // Step 1 – Fetch media metadata
+    const mediaResp = await fetch(
+      `https://graph.facebook.com/v21.0/${mediaId}`,
+      {
+        headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+      }
+    );
 
-        // Step 2 – Download file binary
-        const rawFile = await fetch(mediaUrl, {
-          headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
-        });
-        const buffer = Buffer.from(await rawFile.arrayBuffer());
+    const meta = await mediaResp.json();
 
-        // Step 3 – Upload + Get Public URL
-        const filename = `${Date.now()}.jpg`;
-        const mediaRecord = await processMediaUpload(from, filename, buffer, mimeType);
-        const publicUrl = mediaRecord?.public_url || null;
+    const mediaUrl = meta?.url;
+    const mimeType = meta?.mime_type || "image/jpeg";
 
-        // Step 4 – Save incoming message log
-        await safeSaveMessage({
-          from_number: from,
-          body: null,
-          media_url: publicUrl,
-          media_mime: mimeType,
-          raw: message
-        });
+    if (!mediaUrl) {
+      throw new Error("No media URL returned");
+    }
 
-        // Step 5 – Reply
-        await sendWhatsAppMessage(
-          from,
-          `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
+    // Step 2 – Download file binary
+    const rawFile = await fetch(mediaUrl, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` }
+    });
+
+    const buffer = Buffer.from(await rawFile.arrayBuffer());
+
+    // Step 3 – Upload + Get Public URL
+    const filename = `${Date.now()}.jpg`;
+
+    const mediaRecord = await processMediaUpload(
+      from,
+      filename,
+      buffer,
+      mimeType
+    );
+
+    const publicUrl = mediaRecord?.public_url || null;
+
+    // Step 4 – Save incoming message log
+    await safeSaveMessage({
+      from_number: from,
+      body: null,
+      media_url: publicUrl,
+      media_mime: mimeType,
+      raw: message
+    });
+
+    // Step 5 – Reply
+    await sendWhatsAppMessage(
+      from,
+      `🌟 Mèsi pou enterè w nan *Elmidor Group Influence & Entrepreneurship Challenge* la!
 
 Nou konfime resevwa screenshot ou a.  
 
@@ -284,42 +323,42 @@ Tanpri ranpli fòm ofisyèl enskripsyon an pou valide patisipasyon ou:
 
 Apre ou fin ranpli li, n ap voye règleman yo + etap final yo.  
 Bòn chans ak avni ou! 🚀✨`
-        );
+    );
 
-      } catch (err) {
-        logError("Image handling error:", err?.message);
-
-        await sendWhatsAppMessage(
-          from,
-          "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
-        );
-      }
-
-      return res.sendStatus(200);
-    }
-
-    // -------------------------
-    // 3. HANDLE OTHER TYPES
-    // -------------------------
-    await safeSaveMessage({
-      from_number: from,
-      body: null,
-      media_url: null,
-      media_mime: message.type,
-      raw: message
-    });
+  } catch (err) {
+    logError("Image handling error:", err?.message);
 
     await sendWhatsAppMessage(
       from,
-      `Mwen resevwa yon mesaj tip *${message.type}*.`
+      "Nou resevwa mesaj ou! Si gen pwoblèm ak fichye a, nou ap verifye li. ✔"
     );
-
-    return res.sendStatus(200);
-
-  } catch (err) {
-    logError("🔥 Fatal webhook error:", err?.message);
-    return res.sendStatus(200);
   }
+
+  return res.sendStatus(200);
+}
+
+// -------------------------
+// 3. HANDLE OTHER TYPES
+// -------------------------
+await safeSaveMessage({
+  from_number: from,
+  body: null,
+  media_url: null,
+  media_mime: message.type,
+  raw: message
+});
+
+await sendWhatsAppMessage(
+  from,
+  `Mwen resevwa yon mesaj tip *${message.type}*.`
+);
+
+return res.sendStatus(200);
+
+} catch (err) {
+  logError("🔥 Fatal webhook error:", err?.message);
+  return res.sendStatus(200);
+}
 });
 
 // --------------------------
