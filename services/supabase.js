@@ -1,4 +1,4 @@
-// services/supabase.js (RESTORED & FIXED)
+// services/supabase.js (PART 1 FIXED)
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -11,13 +11,15 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 export const BUCKET = process.env.SUPABASE_MEDIA_BUCKET || "ElmidorGroup";
 
 // 🔹 Clients
-export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  : null;
+export const supabase =
+  SUPABASE_URL && SUPABASE_ANON_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
 
-export const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-  : null;
+export const supabaseAdmin =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    : null;
 
 // 🔹 Init
 export function initSupabase() {
@@ -27,8 +29,10 @@ export function initSupabase() {
 
 export function checkSupabaseConfig() {
   if (!SUPABASE_URL) console.error("❌ Missing SUPABASE_URL variable");
-  if (!SUPABASE_ANON_KEY) console.error("❌ Missing SUPABASE_ANON_KEY variable");
-  if (!SUPABASE_SERVICE_ROLE_KEY) console.error("❌ Missing SUPABASE_SERVICE_ROLE_KEY");
+  if (!SUPABASE_ANON_KEY)
+    console.error("❌ Missing SUPABASE_ANON_KEY variable");
+  if (!SUPABASE_SERVICE_ROLE_KEY)
+    console.error("❌ Missing SUPABASE_SERVICE_ROLE_KEY");
   if (!BUCKET) console.warn("⚠ Using default bucket 'ElmidorGroup'");
 }
 
@@ -36,15 +40,22 @@ export function checkSupabaseConfig() {
 // MESSAGES
 // --------------------------------------------------
 export async function saveMessage(message) {
-  if (!supabaseAdmin) return null;
+  if (!supabaseAdmin) {
+    console.error("❌ Supabase not initialized");
+    return null;
+  }
 
   const payload = {
     from_number: message.from_number,
     body: message.body ?? null,
     media_url: message.media_url ?? null,
     media_mime: message.media_mime ?? null,
-    raw: message.raw ?? {},
-    role: message.role || "user"
+    raw:
+      typeof message.raw === "string"
+        ? message.raw
+        : JSON.stringify(message.raw || {}),
+    role: message.role || "user",
+    dedup_key: `${message.from_number}_${Date.now()}`
   };
 
   const { data, error } = await supabaseAdmin
@@ -63,7 +74,10 @@ export async function saveMessage(message) {
 // REPLIES
 // --------------------------------------------------
 export async function saveReply(reply) {
-  if (!supabaseAdmin) return null;
+  if (!supabaseAdmin) {
+    console.error("❌ Supabase not initialized");
+    return null;
+  }
 
   const payload = {
     to_number: reply.to_number,
@@ -77,7 +91,7 @@ export async function saveReply(reply) {
     .insert([payload]);
 
   if (error) {
-    console.error("saveReply error:", error);
+    console.error("saveReply error:", error.message);
     return null;
   }
 
@@ -94,31 +108,38 @@ export async function createCommand({
   source_phone = null,
   payload = null
 }) {
-  
-  if (!supabaseAdmin) return null;
-  const payload = {
+  if (!supabaseAdmin) {
+    console.error("❌ Supabase not initialized");
+    return null;
+  }
+
+  if (!machine_id) {
+    console.error("❌ Missing machine_id");
+    return null;
+  }
+
+  const commandPayload = {
     machine_id,
     type,
     status,
     source_phone,
-    payload
+    payload,
+    created_at: new Date().toISOString()
   };
 
   const { data, error } = await supabaseAdmin
     .from("commands")
-    .insert([payload])
-    .select(); // ⚠️ VERY IMPORTANT
+    .insert([commandPayload])
+    .select();
 
   if (error) {
     console.error("createCommand error:", error.message);
     return null;
   }
-if (!machine_id) {
-  console.error("❌ Missing machine_id");
-  return null;
-}
+
   return data;
 }
+
 export async function getCommandResult(commandId) {
   if (!supabaseAdmin) return null;
 
@@ -131,6 +152,7 @@ export async function getCommandResult(commandId) {
     .single();
 
   if (error) return null;
+
   return data?.message || null;
 }
 
@@ -138,7 +160,10 @@ export async function getCommandResult(commandId) {
 // CONVERSATION HISTORY
 // --------------------------------------------------
 export async function getConversation(userNumber, limit = 8) {
-  if (!supabaseAdmin) return [];
+  if (!supabaseAdmin) {
+    console.error("❌ Supabase not initialized");
+    return [];
+  }
 
   const { data, error } = await supabaseAdmin
     .from("messages")
@@ -148,7 +173,7 @@ export async function getConversation(userNumber, limit = 8) {
     .limit(limit);
 
   if (error) {
-    console.error("getConversation error:", error);
+    console.error("getConversation error:", error.message);
     return [];
   }
 
@@ -159,7 +184,9 @@ export async function getConversation(userNumber, limit = 8) {
 // STORAGE: UPLOAD MEDIA
 // --------------------------------------------------
 export async function uploadMediaToStorage(path, fileBuffer, contentType) {
-  if (!supabaseAdmin) throw new Error("Supabase not initialized");
+  if (!supabaseAdmin) {
+    throw new Error("Supabase not initialized");
+  }
 
   console.log("📦 Uploading to:", path);
 
@@ -167,7 +194,7 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
     .from(BUCKET)
     .upload(path, fileBuffer, {
       contentType,
-      upsert: true
+      upsert: false
     });
 
   if (error) {
@@ -190,7 +217,10 @@ export async function uploadMediaToStorage(path, fileBuffer, contentType) {
 // MEDIA LOGGING
 // --------------------------------------------------
 export async function saveMediaLog(logEntry) {
-  if (!supabaseAdmin) return null;
+  if (!supabaseAdmin) {
+    console.error("❌ Supabase not initialized");
+    return null;
+  }
 
   const payload = {
     user_number: logEntry.user_number,
@@ -204,7 +234,7 @@ export async function saveMediaLog(logEntry) {
     .insert([payload]);
 
   if (error) {
-    console.error("saveMediaLog error:", error);
+    console.error("saveMediaLog error:", error.message);
     return null;
   }
 
@@ -214,11 +244,20 @@ export async function saveMediaLog(logEntry) {
 // --------------------------------------------------
 // PROCESS MEDIA (UPLOAD + LOG)
 // --------------------------------------------------
-export async function processMediaUpload(userNumber, fileName, buffer, mimeType) {
+export async function processMediaUpload(
+  userNumber,
+  fileName,
+  buffer,
+  mimeType
+) {
   try {
     const filePath = `${userNumber}/${fileName}`;
 
-    const publicUrl = await uploadMediaToStorage(filePath, buffer, mimeType);
+    const publicUrl = await uploadMediaToStorage(
+      filePath,
+      buffer,
+      mimeType
+    );
 
     if (!publicUrl) {
       console.error("processMediaUpload failed: no URL returned");
