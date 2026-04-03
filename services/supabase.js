@@ -119,32 +119,44 @@ export async function createCommand({
     return null;
   }
 
-  if (!machine_id) {
-    console.error("❌ Missing machine_id");
+     if (!machine_id) {
+     console.error("❌ Missing machine_id");
+     return null;
+   }
+
+  if (!type) {
+    console.error("❌ Missing command type");
     return null;
   }
-// 🔥 normalize payload (anti double stringify)
-let cleanPayload = payload;
 
-if (typeof cleanPayload === "string") {
-  try {
-    cleanPayload = JSON.parse(cleanPayload);
-  } catch {
-    // ignore
-  }
+ // 🔥 normalize payload (anti double stringify)
+ let cleanPayload = payload;
+
+ if (typeof cleanPayload === "string") {
+   try {
+     cleanPayload = JSON.parse(cleanPayload);
+   } catch {
+     // ignore
+   }
+ }
+
+// 🔒 ensure payload is always an object (important for OS)
+if (!cleanPayload || typeof cleanPayload !== "object") {
+  cleanPayload = {};
 }
-  const commandPayload = {
-  machine_id,
-  type,
-  script_name,
-  script_url,
-  target,
-  status,
-  source_phone,
-  source_type,
-  payload: cleanPayload,
-  dedup_key: `${message.from_number}_${Date.now()}`
-};
+
+   const commandPayload = {
+   machine_id,
+   type,
+   script_name,
+   script_url,
+   target,
+   status,
+   source_phone,
+   source_type,
+   payload: cleanPayload,
+  dedup_key: `${machine_id}_${type}_${Date.now()}`
+ };
 
   const { data, error } = await supabaseAdmin
     .from("commands")
