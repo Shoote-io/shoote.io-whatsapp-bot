@@ -216,7 +216,6 @@ if (lower === "run service" || lower === "install tools" || lower === "install w
       return res.sendStatus(200);
     }
 
-    // ADD (payload for OS)
     const payload = {
       action: "install_script",
       name: "master-media",
@@ -225,18 +224,17 @@ if (lower === "run service" || lower === "install tools" || lower === "install w
       run_after: "media"
     };
 
-    // 1. Save in DB (OK)
-const data = await createCommand({
-  machine_id: machineId,
-  type: "install_script",
-  script_name: payload.name,
-  script_url: payload.url,
-  target: payload.target,
-  status: "pending",
-  source_phone: from,
-  source_type: "whatsapp",
-  payload: JSON.stringify(payload)
-});
+    const data = await createCommand({
+      machine_id: machineId,
+      type: "install_script",
+      script_name: payload.name,
+      script_url: payload.url,
+      target: payload.target,
+      status: "pending",
+      source_phone: from,
+      source_type: "whatsapp",
+      payload: payload // ✅ FIX IS HERE
+    });
 
     if (!data) throw new Error("Command creation failed");
 
