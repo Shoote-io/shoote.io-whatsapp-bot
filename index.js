@@ -206,7 +206,7 @@ app.post("/webhook", async (req, res) => {
 
       // 🎬 COMMAND DETECTION (IMPROVED)
       // ADD
-if (lower.includes("action") || lower.includes("run")) {
+if (lower === "install media" || lower === "run media") {
   log("🎬 ACTION COMMAND DETECTED");
 
   try {
@@ -221,18 +221,32 @@ if (lower.includes("action") || lower.includes("run")) {
     const payload = {
       action: "install_script",
       name: "master-media",
-      url: "https://raw.githubusercontent.com/USER/REPO/main/master-media.ps1",
+      url: "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/master-media.ps1",
       target: "tools",
       run_after: "media"
     };
 
-    const data = await createCommand({
-      machine_id: machineId,
-      type: "install_media", // MODIFY (pi klè)
-      status: "pending",
-      source_phone: from,
-      payload // ADD
-    });
+    const fs = require("fs");
+
+function sendToOS(command) {
+  const dir = "C:/ElmidorOS/00_SYSTEM/install/";
+  const file = dir + "cmd_" + Date.now() + ".json";
+
+  fs.writeFileSync(file, JSON.stringify(command, null, 2));
+
+  console.log("📦 Command written to OS:", file);
+}
+    // 1. Save in DB (OK)
+const data = await createCommand({
+  machine_id: machineId,
+  type: "install_media",
+  status: "pending",
+  source_phone: from,
+  payload
+});
+
+// 2. 🔥 SEND TO OS (ENPÒTAN)
+sendToOS(payload);
 
     if (!data) throw new Error("Command creation failed");
 
