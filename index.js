@@ -203,16 +203,54 @@ app.post("/webhook", async (req, res) => {
         media_mime: null,
         raw: message
       });
+      const BASE_URL = "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
 
+const ENGINE = {
+  discovery: {
+    video: "video-discovery.ps1",
+    audio: "audio-discovery.ps1"
+  },
+  analyzer: {
+    video: "video-analyzer.ps1",
+    audio: "audio-analyzer.ps1"
+  },
+  distributor: {
+    video: "video-distributor.ps1",
+    audio: "audio-distributor.ps1"
+  }
+};
+      function parseCommand(text) {
+  const parts = text.toLowerCase().split(" ");
+
+  const actionWord = parts[0];
+  const type = parts.find(p => ["video", "audio"].includes(p));
+  const phase = parts.find(p => ["discovery", "analyzer", "distributor"].includes(p));
+
+  if (!actionWord || !type || !phase) return null;
+
+  return { actionWord, type, phase };
+}
+      function buildPayload(cmd) {
+  const scriptFile = ENGINE[cmd.phase]?.[cmd.type];
+  if (!scriptFile) return null;
+
+  return {
+    action: "install_script",
+    name: `${cmd.type}-${cmd.phase}`,
+    url: BASE_URL + scriptFile,
+    target: "workers", // ou ka chanje pita
+    run_after: cmd.phase
+  };
+}
       // 🎬 COMMAND DETECTION (IMPROVED)
-if (lower === "run service" || lower === "install tools" || lower === "install workers") {
-  log("🎬 ACTION COMMAND DETECTED");
+      if (lower === "run service") {
+  log("🎬 MASTER MEDIA COMMAND");
 
   try {
     const machineId = await getMachineIdByPhone(from);
 
     if (!machineId) {
-      await sendWhatsAppMessage(from, "❌ Machine not linked to this number.");
+      await sendWhatsAppMessage(from, "❌ Machine not linked.");
       return res.sendStatus(200);
     }
 
@@ -224,27 +262,62 @@ if (lower === "run service" || lower === "install tools" || lower === "install w
       run_after: "media"
     };
 
-    const data = await createCommand({
+    await createCommand({
       machine_id: machineId,
-      type: "install_script",
+      type: payload.action,
       script_name: payload.name,
       script_url: payload.url,
       target: payload.target,
       status: "pending",
       source_phone: from,
       source_type: "whatsapp",
-      payload: payload // ✅ FIX IS HERE
+      payload: payload
     });
 
-    if (!data) throw new Error("Command creation failed");
+    await sendWhatsAppMessage(from, "✅ Master media deploy...");
+
+  } catch (err) {
+    logError("Error:", err.message);
+    await sendWhatsAppMessage(from, "⚠️ Failed.");
+  }
+
+  return res.sendStatus(200);
+}
+      const parsed = parseCommand(lower);
+
+if (parsed) {
+  log("🎬 DYNAMIC COMMAND DETECTED");
+
+  try {
+    const machineId = await getMachineIdByPhone(from);
+
+    if (!machineId) {
+      await sendWhatsAppMessage(from, "❌ Machine not linked.");
+      return res.sendStatus(200);
+    }
+
+    const payload = buildPayload(parsed);
+    if (!payload) throw new Error("Invalid payload");
+
+    await createCommand({
+      machine_id: machineId,
+      type: payload.action,
+      script_name: payload.name,
+      script_url: payload.url,
+      target: payload.target,
+      status: "pending",
+      source_phone: from,
+      source_type: "whatsapp",
+      payload: payload
+    });
 
     await sendWhatsAppMessage(
       from,
-      "✅ Command lan voye. System lan ap prepare media module la..."
+      `✅ ${payload.name} deploy...`
     );
 
   } catch (err) {
-    logError("Command insert failed:", err.message);
+    logError("Command error:", err.message);
     await sendWhatsAppMessage(from, "⚠️ Command failed.");
   }
 
