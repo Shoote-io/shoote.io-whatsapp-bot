@@ -256,7 +256,7 @@ const ENGINE = {
 
     const payload = {
       action: "install_script",
-      name: "master-media",
+      name: "media-os",
       url: "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/master-media.ps1",
       target: "tools",
       run_after: "media"
