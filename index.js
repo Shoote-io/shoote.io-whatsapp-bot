@@ -203,20 +203,23 @@ app.post("/webhook", async (req, res) => {
         media_mime: null,
         raw: message
       });
-      const BASE_URL = "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
+const BASE_URL = "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
 
 const ENGINE = {
   discovery: {
-    video: "video-discovery.ps1",
-    audio: "audio-discovery.ps1"
+    video: { type: "script", file: "video-discovery.ps1" },
+    audio: { type: "script", file: "audio-discovery.ps1" }
   },
   analyzer: {
-    video: "video-analyzer.ps1",
-    audio: "audio-analyzer.ps1"
+    video: { type: "package", file: "video-analyzer.zip" },
+    audio: { type: "package", file: "audio-analyzer.zip" } // 🔥 py ladan
   },
   distributor: {
-    video: "video-distributor.ps1",
-    audio: "audio-distributor.ps1"
+    video: { type: "script", file: "video-distributor.ps1" },
+    audio: { type: "script", file: "audio-distributor.ps1" }
+  },
+  core: {
+    media: { type: "script", file: "media-os.ps1" }
   }
 };
       function parseCommand(text) {
@@ -230,21 +233,25 @@ const ENGINE = {
 
   return { actionWord, type, phase };
 }
-      function buildPayload(cmd) {
-  const scriptFile = ENGINE[cmd.phase]?.[cmd.type];
-  if (!scriptFile) return null;
+function buildPayload(cmd) {
+  const entry = ENGINE[cmd.phase]?.[cmd.type];
+  if (!entry) return null;
+
+  const action = entry.type === "package"
+    ? "install_package"
+    : "install_script";
 
   return {
-    action: "install_script",
+    action,
     name: `${cmd.type}-${cmd.phase}`,
-    url: BASE_URL + scriptFile,
-    target: "workers", // ou ka chanje pita
-    run_after: cmd.phase
+    url: BASE_URL + entry.file,
+    target: "workers",
+    run_after: null // ❗ pa auto-run ankò
   };
 }
       // 🎬 COMMAND DETECTION (IMPROVED)
-      if (lower === "run service") {
-  log("🎬 MASTER MEDIA COMMAND");
+if (lower === "run service") {
+  log("🎬 RUN MEDIA SERVICE");
 
   try {
     const machineId = await getMachineIdByPhone(from);
@@ -255,32 +262,29 @@ const ENGINE = {
     }
 
     const payload = {
-      action: "install_script",
-      name: "media-os",
-      url: "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/media-os.ps1",
-      target: "tools",
-      run_after: "media"
+      action: "run_service",
+      name: "media",
+      target: "core"
     };
 
     await createCommand({
       machine_id: machineId,
       type: payload.action,
       script_name: payload.name,
-      script_url: payload.url,
+      script_url: null,
       target: payload.target,
       status: "pending",
       source_phone: from,
       source_type: "whatsapp",
-      payload: payload
+      payload
     });
 
-    await sendWhatsAppMessage(from, "✅ Master media deploy...");
+    await sendWhatsAppMessage(from, "🚀 Media service starting...");
 
   } catch (err) {
     logError("Error:", err.message);
     await sendWhatsAppMessage(from, "⚠️ Failed.");
   }
-
   return res.sendStatus(200);
 }
       const parsed = parseCommand(lower);
