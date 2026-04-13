@@ -372,7 +372,6 @@ if (message.type === "text") {
 
     return res.sendStatus(200);
   }
-}
       if (
         ["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x =>
           lower.includes(x)
