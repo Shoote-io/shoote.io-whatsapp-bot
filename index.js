@@ -189,143 +189,189 @@ app.post("/webhook", async (req, res) => {
 
     log("📩 Incoming:", message.type, "from:", from);
 
-    // -------------------------
-    // 1. HANDLE TEXT MESSAGE
-    // -------------------------
-    if (message.type === "text") {
-      const text = (message.text.body || "").trim();
-      const lower = text.toLowerCase();
+  // -------------------------
+// 1. HANDLE TEXT MESSAGE
+// -------------------------
+if (message.type === "text") {
 
-      await safeSaveMessage({
-        from_number: from,
-        body: text,
-        media_url: null,
-        media_mime: null,
-        raw: message
-      });
-const BASE_URL = "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
+  const text = (message.text.body || "").trim();
+  const lower = text.toLowerCase();
 
-const ENGINE = {
-  discovery: {
-    video: { type: "script", file: "video-discovery.ps1" },
-    audio: { type: "script", file: "audio-discovery.ps1" }
-  },
-  analyzer: {
-    video: { type: "package", file: "video-analyzer.zip" },
-    audio: { type: "package", file: "audio-analyzer.zip" } // 🔥 py ladan
-  },
-  distributor: {
-    video: { type: "script", file: "video-distributor.ps1" },
-    audio: { type: "script", file: "audio-distributor.ps1" }
-  },
-  core: {
-    media: { type: "script", file: "media-os.ps1" }
-  }
-};
-      function parseCommand(text) {
-  const parts = text.toLowerCase().split(" ");
+  await safeSaveMessage({
+    from_number: from,
+    body: text,
+    media_url: null,
+    media_mime: null,
+    raw: message
+  });
 
-  const actionWord = parts[0];
-  const type = parts.find(p => ["video", "audio"].includes(p));
-  const phase = parts.find(p => ["discovery", "analyzer", "distributor"].includes(p));
+  const BASE_URL = "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
 
-  if (!actionWord || !type || !phase) return null;
-
-  return { actionWord, type, phase };
-}
-function buildPayload(cmd) {
-  const entry = ENGINE[cmd.phase]?.[cmd.type];
-  if (!entry) return null;
-
-  const action = entry.type === "package"
-    ? "install_package"
-    : "install_script";
-
-  return {
-    action,
-    name: `${cmd.type}-${cmd.phase}`,
-    url: BASE_URL + entry.file,
-    target: "workers",
-    run_after: null // ❗ pa auto-run ankò
+  // -------------------------
+  // ENGINE MAP (OPTIONAL SMART INSTALL)
+  // -------------------------
+  const ENGINE = {
+    discovery: {
+      video: { type: "script", file: "video-discovery.ps1" },
+      audio: { type: "script", file: "audio-discovery.ps1" }
+    },
+    analyzer: {
+      video: { type: "package", file: "video-analyzer.zip" },
+      audio: { type: "package", file: "audio-analyzer.zip" }
+    },
+    distributor: {
+      video: { type: "script", file: "video-distributor.ps1" },
+      audio: { type: "script", file: "audio-distributor.ps1" }
+    },
+    core: {
+      media: { type: "script", file: "media-os.ps1" }
+    }
   };
-}
-      // 🎬 COMMAND DETECTION (IMPROVED)
-if (lower === "run service") {
-  log("🎬 RUN MEDIA SERVICE");
 
-  try {
-    const machineId = await getMachineIdByPhone(from);
+  // -------------------------
+  // PARSER UNIVERSAL
+  // -------------------------
+  function parseCommand(text) {
+    const parts = text.toLowerCase().trim().split(/\s+/);
+    if (parts.length < 2) return null;
 
-    if (!machineId) {
-      await sendWhatsAppMessage(from, "❌ Machine not linked.");
-      return res.sendStatus(200);
+    const action = parts[0]; // run / start / install
+    const name = parts.slice(1).join("-");
+
+    return { action, name };
+  }
+
+  // -------------------------
+  // DETECT TARGET (SMART)
+  // -------------------------
+  function detectTarget(action, name) {
+
+    // 🔵 TOOLS (orchestrator)
+    if (action === "start") return "tools";
+
+    // 🟢 WORKERS (single task)
+    if (action === "run") return "workers";
+
+    // 🟡 INSTALL (default workers sauf si core)
+    if (action === "install") {
+      if (name.includes("media") || name.includes("core")) {
+        return "tools";
+      }
+      return "workers";
     }
 
-    const payload = {
-      action: "run_service",
-      name: "media",
-      target: "core"
+    return "workers";
+  }
+
+  // -------------------------
+  // BUILD INSTALL (ENGINE + FALLBACK)
+  // -------------------------
+  function resolveInstallSource(name) {
+
+    const [type, phase] = name.split("-");
+
+    const entry = ENGINE?.[phase]?.[type];
+
+    if (entry) {
+      return {
+        url: BASE_URL + entry.file,
+        type: entry.type
+      };
+    }
+
+    // fallback generic
+    return {
+      url: BASE_URL + name + ".ps1",
+      type: "script"
     };
-
-    await createCommand({
-      machine_id: machineId,
-      type: payload.action,
-      script_name: payload.name,
-      script_url: null,
-      target: payload.target,
-      status: "pending",
-      source_phone: from,
-      source_type: "whatsapp",
-      payload
-    });
-
-    await sendWhatsAppMessage(from, "🚀 Media service starting...");
-
-  } catch (err) {
-    logError("Error:", err.message);
-    await sendWhatsAppMessage(from, "⚠️ Failed.");
   }
-  return res.sendStatus(200);
-}
-      const parsed = parseCommand(lower);
 
-if (parsed) {
-  log("🎬 DYNAMIC COMMAND DETECTED");
+  // -------------------------
+  // BUILD PAYLOAD UNIVERSAL
+  // -------------------------
+  function buildPayload(cmd) {
 
-  try {
-    const machineId = await getMachineIdByPhone(from);
+    const target = detectTarget(cmd.action, cmd.name);
 
-    if (!machineId) {
-      await sendWhatsAppMessage(from, "❌ Machine not linked.");
-      return res.sendStatus(200);
+    switch (cmd.action) {
+
+      // 🔵 START (TOOLS)
+      case "start":
+        return {
+          action: "run",
+          name: cmd.name,
+          target
+        };
+
+      // 🟢 RUN (WORKERS)
+      case "run":
+        return {
+          action: "run",
+          name: cmd.name,
+          target
+        };
+
+      // 🟡 INSTALL
+      case "install":
+
+        const src = resolveInstallSource(cmd.name);
+
+        return {
+          action: "install",
+          name: cmd.name,
+          url: src.url,
+          target
+        };
+
+      default:
+        return null;
+    }
+  }
+
+  // -------------------------
+  // EXECUTE COMMAND
+  // -------------------------
+  const parsed = parseCommand(lower);
+
+  if (parsed) {
+
+    log("⚡ COMMAND:", parsed.action, parsed.name);
+
+    try {
+      const machineId = await getMachineIdByPhone(from);
+
+      if (!machineId) {
+        await sendWhatsAppMessage(from, "❌ Machine not linked.");
+        return res.sendStatus(200);
+      }
+
+      const payload = buildPayload(parsed);
+      if (!payload) throw new Error("Invalid command");
+
+      await createCommand({
+        machine_id: machineId,
+        type: payload.action,
+        script_name: payload.name,
+        script_url: payload.url || null,
+        target: payload.target,
+        status: "pending",
+        source_phone: from,
+        source_type: "whatsapp",
+        payload
+      });
+
+      await sendWhatsAppMessage(
+        from,
+        `🚀 ${payload.action.toUpperCase()} → ${payload.name} (${payload.target})`
+      );
+
+    } catch (err) {
+      logError("Command error:", err.message);
+      await sendWhatsAppMessage(from, "⚠️ Command failed.");
     }
 
-    const payload = buildPayload(parsed);
-    if (!payload) throw new Error("Invalid payload");
-
-    await createCommand({
-      machine_id: machineId,
-      type: payload.action,
-      script_name: payload.name,
-      script_url: payload.url,
-      target: payload.target,
-      status: "pending",
-      source_phone: from,
-      source_type: "whatsapp",
-      payload: payload
-    });
-
-    await sendWhatsAppMessage(
-      from,
-      `✅ ${payload.name} deploy...`
-    );
-
-  } catch (err) {
-    logError("Command error:", err.message);
-    await sendWhatsAppMessage(from, "⚠️ Command failed.");
+    return res.sendStatus(200);
   }
-
-  return res.sendStatus(200);
 }
       if (
         ["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x =>
