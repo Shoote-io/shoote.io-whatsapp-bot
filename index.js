@@ -131,7 +131,7 @@ async function getMachineIdByPhone(phone) {
       .from("clients")
       .select("machine_id")
       .eq("phone_number", phone)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error("Machine lookup error:", error.message);
@@ -145,65 +145,6 @@ async function getMachineIdByPhone(phone) {
   }
 }
 
-// -------------------------------------------------
-//  VERIFY WEBHOOK
-// -------------------------------------------------
-app.get("/webhook", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    log("✅ Webhook verified");
-    return res.status(200).send(challenge);
-  }
-
-  return res.sendStatus(403);
-});
-
-// -------------------------------------------------
-//  HANDLE INCOMING WHATSAPP MESSAGES (PART 2 FIXED)
-// -------------------------------------------------
-app.post("/webhook", async (req, res) => {
-  try {
-    const body = req.body;
-
-    if (body.object !== "whatsapp_business_account") {
-      return res.sendStatus(404);
-    }
-
-    const entry = body.entry?.[0];
-    const change = entry?.changes?.[0];
-    const message = change?.value?.messages?.[0];
-    const from = message?.from;
-
-    if (!message) return res.sendStatus(200);
-
-    // ADD (dedup protection)
-    const messageId = message.id;
-    if (processedMessages.has(messageId)) {
-      log("⚠️ Duplicate skipped:", messageId);
-      return res.sendStatus(200);
-    }
-    processedMessages.add(messageId);
-
-    log("📩 Incoming:", message.type, "from:", from);
-
-  // -------------------------
-// 1. HANDLE TEXT MESSAGE
-// -------------------------
-if (message.type === "text") {
-
-  const text = (message.text.body || "").trim();
-  const lower = text.toLowerCase();
-
-  await safeSaveMessage({
-    from_number: from,
-    body: text,
-    media_url: null,
-    media_mime: null,
-    raw: message
-  });
 
 // =====================================================
 // NEXUS REGISTRY
@@ -211,159 +152,6 @@ if (message.type === "text") {
 
 const BASE_URL =
   "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
-
-  // =====================================================
-// COMMAND RESULT WATCHER
-// =====================================================
-
-async function watchCompletedCommands() {
-
-  try {
-
-    const { data: commands, error } =
-      await supabaseAdmin
-        .from("commands")
-        .select("*")
-        .eq("status", "completed")
-        .eq("notified", false)
-        .order("created_at", { ascending: true })
-        .limit(10);
-
-    if (error) {
-      console.error(
-        "Watcher error:",
-        error.message
-      );
-      return;
-    }
-
-    if (!commands?.length) return;
-
-    for (const cmd of commands) {
-
-      try {
-
-        // ------------------------------------------
-        // FIND PHONE
-        // ------------------------------------------
-
-        const { data: client } =
-          await supabaseAdmin
-            .from("clients")
-            .select("phone_number")
-            .eq("machine_id", cmd.machine_id)
-            .maybeSingle();
-
-        if (!client?.phone_number) {
-          continue;
-        }
-
-        // ------------------------------------------
-        // FORMAT RESULT
-        // ------------------------------------------
-
-        let message =
-          `✅ Command Completed\n\n` +
-          `Action: ${cmd.action}\n` +
-          `Worker: ${cmd.worker}\n\n`;
-
-        // ------------------------------------------
-        // DISCOVERY STATUS FORMAT
-        // ------------------------------------------
-
-        if (
-          cmd.worker === "discovery.worker"
-        ) {
-
-          const result =
-            typeof cmd.result === "string"
-              ? JSON.parse(cmd.result)
-              : cmd.result;
-
-          message +=
-            `Machine: ${result.machine}\n\n`;
-
-          if (result.runtime?.length) {
-
-            message += "Runtime:\n";
-
-            for (const r of result.runtime) {
-
-              message +=
-                `• ${r.engine} → ${
-                  r.running
-                    ? "running ✅"
-                    : "offline ❌"
-                }\n`;
-            }
-
-            message += "\n";
-          }
-
-          if (result.tools?.length) {
-
-            message += "Tools:\n";
-
-            for (const t of result.tools) {
-
-              message +=
-                `• ${t.tool} ${
-                  t.available
-                    ? "✅"
-                    : "❌"
-                }\n`;
-            }
-
-          }
-
-        }
-
-        // ------------------------------------------
-        // SEND WHATSAPP
-        // ------------------------------------------
-
-        await sendWhatsAppMessage(
-          client.phone_number,
-          message
-        );
-
-        // ------------------------------------------
-        // MARK NOTIFIED
-        // ------------------------------------------
-
-        await supabaseAdmin
-          .from("commands")
-          .update({
-            notified: true
-          })
-          .eq("id", cmd.id);
-
-        console.log(
-          "✅ Result notification sent:",
-          cmd.command_id
-        );
-
-      } catch (err) {
-
-        console.error(
-          "Notify command failed:",
-          err.message
-        );
-
-      }
-
-    }
-
-  } catch (err) {
-
-    console.error(
-      "Watcher fatal:",
-      err.message
-    );
-
-  }
-
-}
 
 // -----------------------------------------------------
 // WORKER INSTALL REGISTRY
@@ -627,8 +415,228 @@ function buildNexusCommand(parsed) {
   }
 
   return null;
+}
+
+
+// =====================================================
+// COMMAND RESULT WATCHER
+// =====================================================
+
+console.log("👀 Watching completed commands...");
+async function watchCompletedCommands() {
+
+  try {
+
+    const { data: commands, error } =
+      await supabaseAdmin
+        .from("commands")
+        .select("*")
+        .eq("status", "completed")
+        .eq("notified", false)
+        .order("created_at", { ascending: true })
+        .limit(10);
+    
+console.log(
+  "📦 Commands found:",
+  commands?.length || 0
+);
+    if (error) {
+      console.error(
+        "Watcher error:",
+        error.message
+      );
+      return;
+    }
+
+    if (!commands?.length) return;
+
+    for (const cmd of commands) {
+
+      try {
+
+        // ------------------------------------------
+        // FIND PHONE
+        // ------------------------------------------
+
+        const { data: client } =
+          await supabaseAdmin
+            .from("clients")
+            .select("phone_number")
+            .eq("machine_id", cmd.machine_id)
+            .maybeSingle();
+
+        if (!client?.phone_number) {
+          continue;
+        }
+
+        // ------------------------------------------
+        // FORMAT RESULT
+        // ------------------------------------------
+
+        let message =
+          `✅ Command Completed\n\n` +
+          `Action: ${cmd.action}\n` +
+          `Worker: ${cmd.worker}\n\n`;
+
+        // ------------------------------------------
+        // DISCOVERY STATUS FORMAT
+        // ------------------------------------------
+
+        if (
+          cmd.worker === "discovery.worker"
+        ) {
+
+          const result =
+            typeof cmd.result === "string"
+              ? JSON.parse(cmd.result)
+              : cmd.result;
+
+          message +=
+            `Machine: ${result.machine}\n\n`;
+
+          if (result.runtime?.length) {
+
+            message += "Runtime:\n";
+
+            for (const r of result.runtime) {
+
+              message +=
+                `• ${r.engine} → ${
+                  r.running
+                    ? "running ✅"
+                    : "offline ❌"
+                }\n`;
+            }
+
+            message += "\n";
+          }
+
+          if (result.tools?.length) {
+
+            message += "Tools:\n";
+
+            for (const t of result.tools) {
+
+              message +=
+                `• ${t.tool} ${
+                  t.available
+                    ? "✅"
+                    : "❌"
+                }\n`;
+            }
+
+          }
+
+        }
+
+        // ------------------------------------------
+        // SEND WHATSAPP
+        // ------------------------------------------
+
+        await sendWhatsAppMessage(
+          client.phone_number,
+          message
+        );
+
+        // ------------------------------------------
+        // MARK NOTIFIED
+        // ------------------------------------------
+
+        await supabaseAdmin
+          .from("commands")
+          .update({
+            notified: true
+          })
+          .eq("id", cmd.id);
+
+        console.log(
+          "✅ Result notification sent:",
+          cmd.command_id
+        );
+
+      } catch (err) {
+
+        console.error(
+          "Notify command failed:",
+          err.message
+        );
+
+      }
+
+    }
+
+  } catch (err) {
+
+    console.error(
+      "Watcher fatal:",
+      err.message
+    );
+
+  }
 
 }
+
+
+// -------------------------------------------------
+//  VERIFY WEBHOOK
+// -------------------------------------------------
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    log("✅ Webhook verified");
+    return res.status(200).send(challenge);
+  }
+
+  return res.sendStatus(403);
+});
+
+// -------------------------------------------------
+//  HANDLE INCOMING WHATSAPP MESSAGES (PART 2 FIXED)
+// -------------------------------------------------
+app.post("/webhook", async (req, res) => {
+  try {
+    const body = req.body;
+
+    if (body.object !== "whatsapp_business_account") {
+      return res.sendStatus(404);
+    }
+
+    const entry = body.entry?.[0];
+    const change = entry?.changes?.[0];
+    const message = change?.value?.messages?.[0];
+    const from = message?.from;
+
+    if (!message) return res.sendStatus(200);
+
+    // ADD (dedup protection)
+    const messageId = message.id;
+    if (processedMessages.has(messageId)) {
+      log("⚠️ Duplicate skipped:", messageId);
+      return res.sendStatus(200);
+    }
+    processedMessages.add(messageId);
+
+    log("📩 Incoming:", message.type, "from:", from);
+
+// -------------------------
+// 1. HANDLE TEXT MESSAGE
+// -------------------------
+if (message.type === "text") {
+
+  const text = (message.text.body || "").trim();
+  const lower = text.toLowerCase();
+
+  await safeSaveMessage({
+    from_number: from,
+    body: text,
+    media_url: null,
+    media_mime: null,
+    raw: message
+  });
+
 
 // =====================================================
 // EXECUTE COMMAND
@@ -712,17 +720,6 @@ if (parsed) {
   return res.sendStatus(200);
 
 }
-
-// =====================================================
-// START COMMAND WATCHER
-// =====================================================
-
-setInterval(() => {
-
-  watchCompletedCommands();
-
-}, 5000);
-
   
       if (
         ["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x =>
@@ -756,7 +753,8 @@ setInterval(() => {
 
       return res.sendStatus(200);
     }
-    // -------------------------
+    
+// -------------------------
 // 2. HANDLE IMAGE MESSAGE
 // -------------------------
 if (message.type === "image") {
@@ -871,3 +869,14 @@ return res.sendStatus(200);
 app.listen(PORT, () => {
   log(`🚀 Server running on port ${PORT}`);
 });
+
+// =====================================================
+// START COMMAND WATCHER
+// =====================================================
+
+setInterval(() => {
+
+  watchCompletedCommands();
+
+}, 5000);
+
