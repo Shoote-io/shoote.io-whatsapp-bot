@@ -205,173 +205,361 @@ if (message.type === "text") {
     raw: message
   });
 
-  const BASE_URL = "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
+// =====================================================
+// NEXUS REGISTRY
+// =====================================================
 
-  // -------------------------
-  // ENGINE MAP (OPTIONAL SMART INSTALL)
-  // -------------------------
-  const ENGINE = {
-    discovery: {
-      video: { type: "script", file: "video-discovery.ps1" },
-      audio: { type: "script", file: "audio-discovery.ps1" }
-    },
-    analyzer: {
-      video: { type: "package", file: "video-analyzer.zip" },
-      audio: { type: "package", file: "audio-analyzer.zip" }
-    },
-    distributor: {
-      video: { type: "script", file: "video-distributor.ps1" },
-      audio: { type: "script", file: "audio-distributor.ps1" }
-    },
-    core: {
-      media: { type: "script", file: "media-os.ps1" }
-    }
-  };
+const BASE_URL =
+  "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
 
-  // -------------------------
-  // PARSER UNIVERSAL
-  // -------------------------
-  function parseCommand(text) {
-    const parts = text.toLowerCase().trim().split(/\s+/);
-    if (parts.length < 2) return null;
+// -----------------------------------------------------
+// WORKER INSTALL REGISTRY
+// -----------------------------------------------------
 
-    const action = parts[0]; // run / start / install
-    const name = parts.slice(1).join("-");
+const WORKER_INSTALLS = {
 
-    return { action, name };
+  "video-discovery": {
+    url: BASE_URL + "video-discovery.ps1",
+    target: "RUNTIME\\WORKERS\\video-discovery.ps1"
+  },
+
+  "audio-discovery": {
+    url: BASE_URL + "audio-discovery.ps1",
+    target: "RUNTIME\\WORKERS\\audio-discovery.ps1"
+  },
+
+  "video-analyzer": {
+    url: BASE_URL + "video-analyzer.zip",
+    target: "RUNTIME\\PACKAGES\\video-analyzer.zip"
+  },
+
+  "audio-analyzer": {
+    url: BASE_URL + "audio-analyzer.zip",
+    target: "RUNTIME\\PACKAGES\\audio-analyzer.zip"
+  },
+
+  "video-distributor": {
+    url: BASE_URL + "video-distributor.ps1",
+    target: "RUNTIME\\WORKERS\\video-distributor.ps1"
+  },
+
+  "audio-distributor": {
+    url: BASE_URL + "audio-distributor.ps1",
+    target: "RUNTIME\\WORKERS\\audio-distributor.ps1"
   }
 
-  // -------------------------
-  // DETECT TARGET (SMART)
-  // -------------------------
-  function detectTarget(action, name) {
+};
 
-    // 🔵 TOOLS (orchestrator)
-    if (action === "start") return "tools";
+// -----------------------------------------------------
+// ENGINE INSTALL REGISTRY
+// -----------------------------------------------------
 
-    // 🟢 WORKERS (single task)
-    if (action === "run") return "workers";
+const ENGINE_INSTALLS = {
 
-    // 🟡 INSTALL (default workers sauf si core)
-    if (action === "install") {
-      if (name.includes("media") || name.includes("core")) {
-        return "tools";
-      }
-      return "workers";
-    }
+  "media-os": {
+    url: BASE_URL + "media-os.ps1",
+    target: "RUNTIME\\ENGINES\\media-os.ps1"
+  },
 
-    return "workers";
+  "personal-os": {
+    url: BASE_URL + "personal-os.ps1",
+    target: "RUNTIME\\ENGINES\\personal-os.ps1"
   }
 
-  // -------------------------
-  // BUILD INSTALL (ENGINE + FALLBACK)
-  // -------------------------
-  function resolveInstallSource(name) {
+};
 
-    const [type, phase] = name.split("-");
+// -----------------------------------------------------
+// RUN WORKERS
+// -----------------------------------------------------
 
-    const entry = ENGINE?.[phase]?.[type];
+const RUN_WORKERS = {
 
-    if (entry) {
-      return {
-        url: BASE_URL + entry.file,
-        type: entry.type
-      };
-    }
+  "video-discovery": "discovery.worker",
+  "audio-discovery": "discovery.worker",
 
-    // fallback generic
+  "video-analyzer": "analyzer.worker",
+  "audio-analyzer": "analyzer.worker",
+
+  "video-distributor": "distributor.worker",
+  "audio-distributor": "distributor.worker"
+
+};
+
+// -----------------------------------------------------
+// START ENGINES
+// -----------------------------------------------------
+
+const START_ENGINES = {
+
+  "media-os": "media.engine",
+  "personal-os": "personal.engine"
+
+};
+
+
+// =====================================================
+// UNIVERSAL PARSER
+// =====================================================
+
+function parseCommand(text) {
+
+  const cleaned = text
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+
+  // scan machine status
+  if (
+    cleaned === "scan machine status" ||
+    cleaned === "machine status"
+  ) {
+
     return {
-      url: BASE_URL + name + ".ps1",
-      type: "script"
+      intent: "scan"
     };
   }
 
-  // -------------------------
-  // BUILD PAYLOAD UNIVERSAL
-  // -------------------------
-  function buildPayload(cmd) {
+  const parts = cleaned.split(" ");
 
-    const target = detectTarget(cmd.action, cmd.name);
+  if (parts.length < 2) return null;
 
-    switch (cmd.action) {
+  const action = parts[0];
 
-      // 🔵 START (TOOLS)
-      case "start":
-        return {
-          action: "run",
-          name: cmd.name,
-          target
-        };
+  const name = parts
+    .slice(1)
+    .join("-")
+    .replace(/--+/g, "-");
 
-      // 🟢 RUN (WORKERS)
-      case "run":
-        return {
-          action: "run",
-          name: cmd.name,
-          target
-        };
+  return {
+    intent: action,
+    name
+  };
+}
 
-      // 🟡 INSTALL
-      case "install":
 
-        const src = resolveInstallSource(cmd.name);
+// =====================================================
+// BUILD NEXUS COMMAND
+// =====================================================
 
-        return {
-          action: "install",
-          name: cmd.name,
-          url: src.url,
-          target
-        };
+function buildNexusCommand(parsed) {
 
-      default:
-        return null;
-    }
-  }
+  // ---------------------------------------------------
+  // SCAN MACHINE STATUS
+  // ---------------------------------------------------
 
-  // -------------------------
-  // EXECUTE COMMAND
-  // -------------------------
-  const parsed = parseCommand(lower);
+  if (parsed.intent === "scan") {
 
-  if (parsed) {
+    return {
 
-    log("⚡ COMMAND:", parsed.action, parsed.name);
+      action: "ping",
 
-    try {
-      const machineId = await getMachineIdByPhone(from);
+      worker: "discovery.worker",
 
-      if (!machineId) {
-        await sendWhatsAppMessage(from, "❌ Machine not linked.");
-        return res.sendStatus(200);
+      payload: {
+        message: "Generate Status Tool"
       }
 
-      const payload = buildPayload(parsed);
-      if (!payload) throw new Error("Invalid command");
+    };
 
-      await createCommand({
-        machine_id: machineId,
-        type: payload.action,
-        script_name: payload.name,
-        script_url: payload.url || null,
-        target: payload.target,
-        status: "pending",
-        source_phone: from,
-        source_type: "whatsapp",
-        payload
-      });
+  }
+
+  // ---------------------------------------------------
+  // INSTALL WORKER
+  // ---------------------------------------------------
+
+  if (parsed.intent === "install") {
+
+    // ENGINE INSTALL
+    if (ENGINE_INSTALLS[parsed.name]) {
+
+      const engine = ENGINE_INSTALLS[parsed.name];
+
+      return {
+
+        action: "update",
+
+        worker: "update.engine",
+
+        payload: {
+
+          download_url: engine.url,
+
+          target_path: engine.target,
+
+          execute: true
+
+        }
+
+      };
+
+    }
+
+    // WORKER INSTALL
+    if (WORKER_INSTALLS[parsed.name]) {
+
+      const worker = WORKER_INSTALLS[parsed.name];
+
+      return {
+
+        action: "update",
+
+        worker: "update.engine",
+
+        payload: {
+
+          download_url: worker.url,
+
+          target_path: worker.target,
+
+          execute: false
+
+        }
+
+      };
+
+    }
+
+  }
+
+  // ---------------------------------------------------
+  // RUN WORKER
+  // ---------------------------------------------------
+
+  if (parsed.intent === "run") {
+
+    const worker = RUN_WORKERS[parsed.name];
+
+    if (!worker) return null;
+
+    return {
+
+      action: "run",
+
+      worker,
+
+      payload: {
+
+        target: parsed.name
+
+      }
+
+    };
+
+  }
+
+  // ---------------------------------------------------
+  // START ENGINE
+  // ---------------------------------------------------
+
+  if (parsed.intent === "start") {
+
+    const engine = START_ENGINES[parsed.name];
+
+    if (!engine) return null;
+
+    return {
+
+      action: "start",
+
+      worker: engine,
+
+      payload: {
+
+        target: parsed.name
+
+      }
+
+    };
+
+  }
+
+  return null;
+
+}
+
+// =====================================================
+// EXECUTE COMMAND
+// =====================================================
+
+const parsed = parseCommand(lower);
+
+if (parsed) {
+
+  log("⚡ NEXUS COMMAND:", parsed);
+
+  try {
+
+    const machineId =
+      await getMachineIdByPhone(from);
+
+    if (!machineId) {
 
       await sendWhatsAppMessage(
         from,
-        `🚀 ${payload.action.toUpperCase()} → ${payload.name} (${payload.target})`
+        "❌ Machine not linked."
       );
 
-    } catch (err) {
-      logError("Command error:", err.message);
-      await sendWhatsAppMessage(from, "⚠️ Command failed.");
+      return res.sendStatus(200);
     }
 
-    return res.sendStatus(200);
+    const nexusCommand =
+      buildNexusCommand(parsed);
+
+    if (!nexusCommand) {
+
+      await sendWhatsAppMessage(
+        from,
+        "⚠️ Unknown Nexus command."
+      );
+
+      return res.sendStatus(200);
+    }
+
+    await createCommand({
+
+      machine_id: machineId,
+
+      action: nexusCommand.action,
+
+      worker: nexusCommand.worker,
+
+      payload: nexusCommand.payload
+
+    });
+
+    await sendWhatsAppMessage(
+      from,
+      [
+        "🚀 Nexus Command Queued",
+        "",
+        `Action: ${nexusCommand.action}`,
+        `Worker: ${nexusCommand.worker}`,
+        `Target: ${
+          nexusCommand.payload?.target ||
+          nexusCommand.payload?.target_path ||
+          "system"
+        }`
+      ].join("\n")
+    );
+
+  } catch (err) {
+
+    logError(
+      "Nexus command error:",
+      err.message
+    );
+
+    await sendWhatsAppMessage(
+      from,
+      "⚠️ Failed to queue Nexus command."
+    );
+
   }
+
+  return res.sendStatus(200);
+
+}
+  
       if (
         ["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x =>
           lower.includes(x)
