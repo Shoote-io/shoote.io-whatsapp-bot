@@ -422,7 +422,6 @@ function buildNexusCommand(parsed) {
 // COMMAND RESULT WATCHER
 // =====================================================
 
-console.log("👀 Watching completed commands...");
 async function watchCompletedCommands() {
 
   try {
@@ -436,10 +435,6 @@ async function watchCompletedCommands() {
         .order("created_at", { ascending: true })
         .limit(10);
     
-console.log(
-  "📦 Commands found:",
-  commands?.length || 0
-);
     if (error) {
       console.error(
         "Watcher error:",
