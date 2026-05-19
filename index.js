@@ -212,6 +212,159 @@ if (message.type === "text") {
 const BASE_URL =
   "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
 
+  // =====================================================
+// COMMAND RESULT WATCHER
+// =====================================================
+
+async function watchCompletedCommands() {
+
+  try {
+
+    const { data: commands, error } =
+      await supabaseAdmin
+        .from("commands")
+        .select("*")
+        .eq("status", "completed")
+        .eq("notified", false)
+        .order("created_at", { ascending: true })
+        .limit(10);
+
+    if (error) {
+      console.error(
+        "Watcher error:",
+        error.message
+      );
+      return;
+    }
+
+    if (!commands?.length) return;
+
+    for (const cmd of commands) {
+
+      try {
+
+        // ------------------------------------------
+        // FIND PHONE
+        // ------------------------------------------
+
+        const { data: client } =
+          await supabaseAdmin
+            .from("clients")
+            .select("phone_number")
+            .eq("machine_id", cmd.machine_id)
+            .maybeSingle();
+
+        if (!client?.phone_number) {
+          continue;
+        }
+
+        // ------------------------------------------
+        // FORMAT RESULT
+        // ------------------------------------------
+
+        let message =
+          `✅ Command Completed\n\n` +
+          `Action: ${cmd.action}\n` +
+          `Worker: ${cmd.worker}\n\n`;
+
+        // ------------------------------------------
+        // DISCOVERY STATUS FORMAT
+        // ------------------------------------------
+
+        if (
+          cmd.worker === "discovery.worker"
+        ) {
+
+          const result =
+            typeof cmd.result === "string"
+              ? JSON.parse(cmd.result)
+              : cmd.result;
+
+          message +=
+            `Machine: ${result.machine}\n\n`;
+
+          if (result.runtime?.length) {
+
+            message += "Runtime:\n";
+
+            for (const r of result.runtime) {
+
+              message +=
+                `• ${r.engine} → ${
+                  r.running
+                    ? "running ✅"
+                    : "offline ❌"
+                }\n`;
+            }
+
+            message += "\n";
+          }
+
+          if (result.tools?.length) {
+
+            message += "Tools:\n";
+
+            for (const t of result.tools) {
+
+              message +=
+                `• ${t.tool} ${
+                  t.available
+                    ? "✅"
+                    : "❌"
+                }\n`;
+            }
+
+          }
+
+        }
+
+        // ------------------------------------------
+        // SEND WHATSAPP
+        // ------------------------------------------
+
+        await sendWhatsAppMessage(
+          client.phone_number,
+          message
+        );
+
+        // ------------------------------------------
+        // MARK NOTIFIED
+        // ------------------------------------------
+
+        await supabaseAdmin
+          .from("commands")
+          .update({
+            notified: true
+          })
+          .eq("id", cmd.id);
+
+        console.log(
+          "✅ Result notification sent:",
+          cmd.command_id
+        );
+
+      } catch (err) {
+
+        console.error(
+          "Notify command failed:",
+          err.message
+        );
+
+      }
+
+    }
+
+  } catch (err) {
+
+    console.error(
+      "Watcher fatal:",
+      err.message
+    );
+
+  }
+
+}
+
 // -----------------------------------------------------
 // WORKER INSTALL REGISTRY
 // -----------------------------------------------------
@@ -559,6 +712,17 @@ if (parsed) {
   return res.sendStatus(200);
 
 }
+
+// =====================================================
+// START COMMAND WATCHER
+// =====================================================
+
+setInterval(() => {
+
+  watchCompletedCommands();
+
+}, 5000);
+
   
       if (
         ["hi", "hello", "salut", "bonjour", "hola", "alo"].some(x =>
