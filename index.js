@@ -418,6 +418,42 @@ function buildNexusCommand(parsed) {
 }
 
 
+async function getMachineInfo(machineId) {
+
+  try {
+
+    const { data, error } =
+      await supabaseAdmin
+        .from("machines")
+        .select("*")
+        .eq("machine_id", machineId)
+        .maybeSingle();
+
+    if (error) {
+      console.error(
+        "Machine info error:",
+        error.message
+      );
+
+      return null;
+    }
+
+    return data;
+
+  } catch (err) {
+
+    console.error(
+      "Machine info failed:",
+      err.message
+    );
+
+    return null;
+
+  }
+
+}
+
+
 // =====================================================
 // COMMAND RESULT WATCHER
 // =====================================================
@@ -469,55 +505,75 @@ async function watchCompletedCommands() {
         // ------------------------------------------
 
         let message =
-          `✅ Command Completed\n\n` +
-          `Action: ${cmd.action}\n` +
-          `Worker: ${cmd.worker}\n\n`;
+  `✅ *Scan Status Completed*\n` +
+  `Machine: ${result.machine}\n` +
+  `Worker: ${cmd.worker}\n\n`;
 
-        // ------------------------------------------
-        // DISCOVERY STATUS FORMAT
-        // ------------------------------------------
+// ------------------------------------------
+// ACTIVE ENGINES
+// ------------------------------------------
 
-        if (
-          cmd.worker === "discovery.worker"
-        ) {
+if (result.runtime?.length) {
 
-          const result =
-            typeof cmd.result === "string"
-              ? JSON.parse(cmd.result)
-              : cmd.result;
+  message += "⚡ Active Engines:\n";
 
-          message +=
-            `Machine: ${result.machine}\n\n`;
+  for (const r of result.runtime) {
 
-          if (result.runtime?.length) {
+    message +=
+      `• ${r.engine} → ${
+        r.running
+          ? "running ✅"
+          : "offline ❌"
+      }\n`;
 
-            message += "Runtime:\n";
+  }
 
-            for (const r of result.runtime) {
+  message += "\n";
 
-              message +=
-                `• ${r.engine} → ${
-                  r.running
-                    ? "running ✅"
-                    : "offline ❌"
-                }\n`;
-            }
+}
 
-            message += "\n";
-          }
+// ------------------------------------------
+// AVAILABLE TOOLS
+// ------------------------------------------
 
-          if (result.tools?.length) {
+if (result.tools?.length) {
 
-            message += "Tools:\n";
+  message += "🧰 Available Tools:\n";
 
-            for (const t of result.tools) {
+  for (const t of result.tools) {
 
-              message +=
-                `• ${t.tool} ${
-                  t.available
-                    ? "✅"
-                    : "❌"
-                }\n`;
+    message +=
+      `• ${t.tool} ${
+        t.available
+          ? "✅"
+          : "❌"
+      }\n`;
+
+  }
+
+  message += "\n";
+
+}
+
+// ------------------------------------------
+// SUMMARY
+// ------------------------------------------
+
+message +=
+  "📊 Summary:\n" +
+  `• Engines Running: ${
+    result.summary?.engines_running || 0
+  }/${
+    result.summary?.engines_total || 0
+  }\n` +
+
+  `• Tools Available: ${
+    result.summary?.tools_available || 0
+  }/${
+    result.summary?.tools_total || 0
+  }\n\n` +
+
+  "🟢 System ready for orchestration tasks.";
             }
 
           }
@@ -683,22 +739,78 @@ if (parsed) {
 
     });
 
-    await sendWhatsAppMessage(
-      from,
-      [
-        "🚀 Nexus Command Queued",
-        "",
-        `Action: ${nexusCommand.action}`,
-        `Worker: ${nexusCommand.worker}`,
-        `Target: ${
-          nexusCommand.payload?.target ||
-          nexusCommand.payload?.target_path ||
-          "system"
-        }`
-      ].join("\n")
-    );
+    const machineInfo =
+  await getMachineInfo(machineId);
 
-  } catch (err) {
+if (machineInfo) {
+
+  await sendWhatsAppMessage(
+    from,
+
+    [
+
+    "🖥️ *Elmidor Nexus • Machine Status*",
+    "",
+
+    `🧠 Hostname: *${machineInfo.hostname || "UNKNOWN"}*`,
+
+    `📍 Machine: *${machineInfo.computer_name || "UNKNOWN"}*`,
+    `🟢 Status: *${(machineInfo.status || "offline").toUpperCase()}*`,
+
+    `🛡️ Integrity: *${(machineInfo.integrity || "unknown").toUpperCase()}*`,
+    `🔐 Trust Level: *${(machineInfo.trust_level || "unknown").toUpperCase()}*`,
+
+    "",
+
+    `🌐 Public IP: ${machineInfo.public_ip || "N/A"}`,
+    `🏠 Local IP: ${machineInfo.local_ip || "N/A"}`,
+
+    "",
+
+    `⚙️ Runtime Version: ${machineInfo.runtime_version || "N/A"}`,
+    `🚀 Bootstrap: ${machineInfo.bootstrap_version || "N/A"}`,
+
+    "",
+
+    `💻 CPU: ${cpu}`,
+    `🧩 Cores: ${cores} / Threads: ${threads}`,
+
+    "",
+
+    "💾 Storage:",
+    `• Total: ${totalStorage} GB`,
+    `• Used: ${usedStorage} GB`,
+    `• Free: ${freeStorage} GB`,
+
+    "",
+
+    `🧠 RAM: ${ram} GB`,
+    `❌ Execution Failures: ${machineInfo.execution_failures || 0}`,
+
+    "",
+
+    `🕒 Last Heartbeat:`,
+    `${machineInfo.last_heartbeat || "Unknown"}`,
+
+    "",
+
+    "━━━━━━━━━━━━━━━",
+    "🧠 Nexus Runtime Ecosystem",
+    "━━━━━━━━━━━━━━━",
+    "",
+    "Machine successfully linked",
+    "to the distributed runtime",
+    "ecosystem.",
+    "",
+    "Waiting for live telemetry",
+    "from orchestration workers..."
+
+  ].join("\n")
+
+);
+
+}
+ catch (err) {
 
     logError(
       "Nexus command error:",
