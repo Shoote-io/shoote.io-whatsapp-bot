@@ -418,6 +418,10 @@ function buildNexusCommand(parsed) {
 }
 
 
+// =====================================================
+// BUILD NEXUS COMMAND
+// =====================================================
+
 async function getMachineInfo(machineId) {
 
   try {
@@ -425,7 +429,20 @@ async function getMachineInfo(machineId) {
     const { data, error } =
       await supabaseAdmin
         .from("machines")
-        .select("*")
+        .select(`
+  hostname,
+  computer_name,
+  status,
+  integrity,
+  trust_level,
+  public_ip,
+  local_ip,
+  runtime_version,
+  bootstrap_version,
+  telemetry,
+  execution_failures,
+  last_heartbeat
+`)
         .eq("machine_id", machineId)
         .maybeSingle();
 
@@ -470,13 +487,16 @@ async function watchCompletedCommands() {
         .eq("notified", false)
         .order("created_at", { ascending: true })
         .limit(10);
-    
+
     if (error) {
+
       console.error(
         "Watcher error:",
         error.message
       );
+
       return;
+
     }
 
     if (!commands?.length) return;
@@ -500,93 +520,89 @@ async function watchCompletedCommands() {
           continue;
         }
 
-// ------------------------------------------
-// FORMAT RESULT
-// ------------------------------------------
+        // ------------------------------------------
+        // FORMAT RESULT
+        // ------------------------------------------
 
-const result =
-  typeof cmd.result === "string"
-    ? JSON.parse(cmd.result)
-    : cmd.result;
+        const result =
+          typeof cmd.result === "string"
+            ? JSON.parse(cmd.result)
+            : cmd.result;
 
-let message =
-  `✅ *Scan Status Completed*\n` +
-  `Machine: ${result.machine}\n` +
-  `Worker: ${cmd.worker}\n\n`;
+        let message =
+          `✅ *Scan Status Completed*\n` +
+          `Machine: ${result.machine}\n` +
+          `Worker: ${cmd.worker}\n\n`;
 
-// ------------------------------------------
-// ACTIVE ENGINES
-// ------------------------------------------
+        // ------------------------------------------
+        // ACTIVE ENGINES
+        // ------------------------------------------
 
-if (result.runtime?.length) {
+        if (result.runtime?.length) {
 
-  message += "⚡ Active Engines:\n";
+          message += "⚡ Active Engines:\n";
 
-  for (const r of result.runtime) {
+          for (const r of result.runtime) {
 
-    message +=
-      `• ${r.engine} → ${
-        r.running
-          ? "running ✅"
-          : "offline ❌"
-      }\n`;
-
-  }
-
-  message += "\n";
-
-}
-
-// ------------------------------------------
-// AVAILABLE TOOLS
-// ------------------------------------------
-
-if (result.tools?.length) {
-
-  message += "🧰 Available Tools:\n";
-
-  for (const t of result.tools) {
-
-    message +=
-      `• ${t.tool} ${
-        t.available
-          ? "✅"
-          : "❌"
-      }\n`;
-
-  }
-
-  message += "\n";
-
-}
-
-// ------------------------------------------
-// SUMMARY
-// ------------------------------------------
-
-message +=
-  "📊 Summary:\n" +
-  `• Engines Running: ${
-    result.summary?.engines_running || 0
-  }/${
-    result.summary?.engines_total || 0
-  }\n` +
-
-  `• Tools Available: ${
-    result.summary?.tools_available || 0
-  }/${
-    result.summary?.tools_total || 0
-  }\n\n` +
-
-  "🟢 System ready for orchestration tasks.";
-            }
+            message +=
+              `• ${r.engine} → ${
+                r.running
+                  ? "running ✅"
+                  : "offline ❌"
+              }\n`;
 
           }
+
+          message += "\n";
 
         }
 
         // ------------------------------------------
-        // SEND WHATSAPP
+        // AVAILABLE TOOLS
+        // ------------------------------------------
+
+        if (result.tools?.length) {
+
+          message += "🧰 Available Tools:\n";
+
+          for (const t of result.tools) {
+
+            message +=
+              `• ${t.tool} ${
+                t.available
+                  ? "✅"
+                  : "❌"
+              }\n`;
+
+          }
+
+          message += "\n";
+
+        }
+
+        // ------------------------------------------
+        // SUMMARY
+        // ------------------------------------------
+
+        message +=
+          "📊 Summary:\n" +
+
+          `• Engines Running: ${
+            result.summary?.engines_running || 0
+          }/${
+            result.summary?.engines_total || 0
+          }\n` +
+
+          `• Tools Available: ${
+            result.summary?.tools_available || 0
+          }/${
+            result.summary?.tools_total || 0
+          }\n\n` +
+
+          "🟢 System ready for orchestration tasks.";
+
+        // ------------------------------------------
+        // SEND MESSAGE
         // ------------------------------------------
 
         await sendWhatsAppMessage(
@@ -706,7 +722,7 @@ if (parsed) {
 
   try {
 
-    const machineId =
+const machineId =
       await getMachineIdByPhone(from);
 
     if (!machineId) {
@@ -719,8 +735,8 @@ if (parsed) {
       return res.sendStatus(200);
     }
 
-    const nexusCommand =
-      buildNexusCommand(parsed);
+const nexusCommand =
+     buildNexusCommand(parsed);
 
     if (!nexusCommand) {
 
@@ -744,7 +760,7 @@ if (parsed) {
 
     });
 
-    const machineInfo =
+const machineInfo =
   await getMachineInfo(machineId);
 
 if (machineInfo) {
