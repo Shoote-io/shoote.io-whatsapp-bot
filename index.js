@@ -500,11 +500,16 @@ async function watchCompletedCommands() {
           continue;
         }
 
-        // ------------------------------------------
-        // FORMAT RESULT
-        // ------------------------------------------
+// ------------------------------------------
+// FORMAT RESULT
+// ------------------------------------------
 
-        let message =
+const result =
+  typeof cmd.result === "string"
+    ? JSON.parse(cmd.result)
+    : cmd.result;
+
+let message =
   `✅ *Scan Status Completed*\n` +
   `Machine: ${result.machine}\n` +
   `Worker: ${cmd.worker}\n\n`;
@@ -744,6 +749,39 @@ if (parsed) {
 
 if (machineInfo) {
 
+const telemetry =
+  typeof machineInfo.telemetry === "string"
+    ? JSON.parse(machineInfo.telemetry)
+    : machineInfo.telemetry || {};
+
+const cpu =
+  telemetry?.hardware?.CPU?.NAME ||
+  "Unknown CPU";
+
+const cores =
+  telemetry?.hardware?.CPU?.CORES ||
+  "?";
+
+const threads =
+  telemetry?.hardware?.CPU?.THREADS ||
+  "?";
+
+const ram =
+  telemetry?.hardware?.MEMORY?.TOTAL_GB ||
+  "?";
+
+const totalStorage =
+  telemetry?.storage?.total_gb ||
+  "?";
+
+const usedStorage =
+  telemetry?.storage?.used_gb ||
+  "?";
+
+const freeStorage =
+  telemetry?.storage?.free_gb ||
+  "?";
+
   await sendWhatsAppMessage(
     from,
 
@@ -808,9 +846,10 @@ if (machineInfo) {
   ].join("\n")
 
 );
-
-}
- catch (err) {
+  
+  }
+    
+ } catch (err) {
 
     logError(
       "Nexus command error:",
