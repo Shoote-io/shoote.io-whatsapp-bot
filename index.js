@@ -145,98 +145,43 @@ async function getMachineIdByPhone(phone) {
   }
 }
 
+// =====================================================
+// NEXUS COMMAND INTENTS
+// =====================================================
+
+const NEXUS_INTENTS = [
+
+  "machine",
+  "run",
+  "install",
+  "start"
+
+];
 
 // =====================================================
-// NEXUS REGISTRY
+// NORMALIZE
 // =====================================================
 
-const BASE_URL =
-  "https://raw.githubusercontent.com/Shoote-io/elmidor-toolkit-control/main/";
+function normalize(value) {
 
-// -----------------------------------------------------
-// WORKER INSTALL REGISTRY
-// -----------------------------------------------------
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/_/g, "-")
+    .replace(/\./g, "-");
+}
 
-const WORKER_INSTALLS = {
+// =====================================================
+// TOKENIZE
+// =====================================================
 
-  "video-discovery": {
-    url: BASE_URL + "video-discovery.ps1",
-    target: "RUNTIME\\WORKERS\\video-discovery.ps1"
-  },
+function tokenize(text) {
 
-  "audio-discovery": {
-    url: BASE_URL + "audio-discovery.ps1",
-    target: "RUNTIME\\WORKERS\\audio-discovery.ps1"
-  },
-
-  "video-analyzer": {
-    url: BASE_URL + "video-analyzer.zip",
-    target: "RUNTIME\\PACKAGES\\video-analyzer.zip"
-  },
-
-  "audio-analyzer": {
-    url: BASE_URL + "audio-analyzer.zip",
-    target: "RUNTIME\\PACKAGES\\audio-analyzer.zip"
-  },
-
-  "video-distributor": {
-    url: BASE_URL + "video-distributor.ps1",
-    target: "RUNTIME\\WORKERS\\video-distributor.ps1"
-  },
-
-  "audio-distributor": {
-    url: BASE_URL + "audio-distributor.ps1",
-    target: "RUNTIME\\WORKERS\\audio-distributor.ps1"
-  }
-
-};
-
-// -----------------------------------------------------
-// ENGINE INSTALL REGISTRY
-// -----------------------------------------------------
-
-const ENGINE_INSTALLS = {
-
-  "media-os": {
-    url: BASE_URL + "media-os.ps1",
-    target: "RUNTIME\\ENGINES\\media-os.ps1"
-  },
-
-  "personal-os": {
-    url: BASE_URL + "personal-os.ps1",
-    target: "RUNTIME\\ENGINES\\personal-os.ps1"
-  }
-
-};
-
-// -----------------------------------------------------
-// RUN WORKERS
-// -----------------------------------------------------
-
-const RUN_WORKERS = {
-
-  "video-discovery": "discovery.worker",
-  "audio-discovery": "discovery.worker",
-
-  "video-analyzer": "analyzer.worker",
-  "audio-analyzer": "analyzer.worker",
-
-  "video-distributor": "distributor.worker",
-  "audio-distributor": "distributor.worker"
-
-};
-
-// -----------------------------------------------------
-// START ENGINES
-// -----------------------------------------------------
-
-const START_ENGINES = {
-
-  "media-os": "media.engine",
-  "personal-os": "personal.engine"
-
-};
-
+  return normalize(text)
+    .split(" ")
+    .filter(Boolean);
+}
 
 // =====================================================
 // UNIVERSAL PARSER
@@ -244,39 +189,71 @@ const START_ENGINES = {
 
 function parseCommand(text) {
 
-  const cleaned = text
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, " ");
+  const cleaned =
+    normalize(text);
 
-  // scan machine status
-  if (
-    cleaned === "scan machine status" ||
-    cleaned === "machine status"
-  ) {
+  const tokens =
+    tokenize(cleaned);
 
-    return {
-      intent: "scan"
-    };
+  if (tokens.length === 0) {
+    return null;
   }
 
-  const parts = cleaned.split(" ");
+  // ---------------------------------------------------
+  // INTENT
+  // ---------------------------------------------------
 
-  if (parts.length < 2) return null;
+  const intent =
+    tokens[0];
 
-  const action = parts[0];
+  // ---------------------------------------------------
+  // VALIDATE INTENT
+  // ---------------------------------------------------
 
-  const name = parts
-    .slice(1)
-    .join("-")
-    .replace(/--+/g, "-");
+  if (
+    !NEXUS_INTENTS.includes(intent)
+  ) {
+
+    return null;
+  }
+
+  // ---------------------------------------------------
+  // OPERATION
+  // ---------------------------------------------------
+
+  const operation =
+    tokens.length >= 2
+      ? tokens[1]
+      : null;
+
+  // ---------------------------------------------------
+  // TARGET
+  // ---------------------------------------------------
+
+  const target =
+    tokens.length >= 3
+      ? tokens
+          .slice(2)
+          .join("-")
+      : null;
+
+  // ---------------------------------------------------
+  // COMMAND OBJECT
+  // ---------------------------------------------------
 
   return {
-    intent: action,
-    name
+
+    intent,
+
+    operation,
+
+    target,
+
+    raw: text,
+
+    normalized: cleaned
   };
 }
-
 
 // =====================================================
 // BUILD NEXUS COMMAND
@@ -284,139 +261,224 @@ function parseCommand(text) {
 
 function buildNexusCommand(parsed) {
 
-  // ---------------------------------------------------
-  // SCAN MACHINE STATUS
-  // ---------------------------------------------------
+  if (!parsed) {
+    return null;
+  }
 
-  if (parsed.intent === "scan") {
+  const now =
+    new Date().toISOString();
 
-    return {
+  return {
 
-      action: "ping",
+    // =================================================
+    // CORE
+    // =================================================
 
-      worker: "discovery.worker",
+    command_id:
+      crypto.randomUUID(),
 
-      payload: {
-        message: "Generate Status Tool"
+    execution_id:
+      null,
+
+    correlation_id:
+      crypto.randomUUID(),
+
+    version:
+      "1.0.0",
+
+    created_at:
+      now,
+
+    updated_at:
+      now,
+
+    // =================================================
+    // ROUTING
+    // =================================================
+
+    intent:
+      parsed.intent,
+
+    operation:
+      parsed.operation,
+
+    target:
+      parsed.target,
+
+    // =================================================
+    // EXECUTION
+    // =================================================
+
+    execution: {
+
+      state:
+        "queued",
+
+      phase:
+        "ingress",
+
+      progress:
+        0,
+
+      attempts:
+        0,
+
+      max_attempts:
+        3,
+
+      priority:
+        "normal",
+
+      mode:
+        "async",
+
+      timeout_seconds:
+        300
+    },
+
+    // =================================================
+    // ORCHESTRATION
+    // =================================================
+
+    orchestration: {
+
+      origin:
+        "whatsapp",
+
+      source:
+        "nexus-bot",
+
+      transport:
+        "supabase",
+
+      runtime:
+        "elmidor-nexus",
+
+      dispatch_strategy:
+        "contract",
+
+      recovery_strategy:
+        "retry"
+    },
+
+    // =================================================
+    // SECURITY
+    // =================================================
+
+    permissions: {
+
+      filesystem:
+        false,
+
+      network:
+        false,
+
+      shell:
+        false,
+
+      elevated:
+        false
+    },
+
+    // =================================================
+    // PAYLOAD
+    // =================================================
+
+    payload: {
+
+      raw:
+        parsed.raw,
+
+      normalized:
+        parsed.normalized,
+
+      arguments: {},
+
+      metadata: {}
+    },
+
+    // =================================================
+    // RESULT
+    // =================================================
+
+    result: {
+
+      status:
+        null,
+
+      code:
+        null,
+
+      message:
+        null,
+
+      data:
+        null,
+
+      artifacts: []
+    },
+
+    // =================================================
+    // STATE
+    // =================================================
+
+    state: {
+
+      current:
+        "queued",
+
+      previous:
+        null,
+
+      history: []
+    },
+
+    // =================================================
+    // TELEMETRY
+    // =================================================
+
+    telemetry: {
+
+      heartbeat_at:
+        null,
+
+      started_at:
+        null,
+
+      completed_at:
+        null,
+
+      duration_ms:
+        null,
+
+      runtime_id:
+        null,
+
+      worker_id:
+        null,
+
+      machine_id:
+        null
+    },
+
+    // =================================================
+    // NOTES
+    // =================================================
+
+    notes: [
+
+      {
+        level: "info",
+
+        message:
+          "Command queued.",
+
+        timestamp:
+          now
       }
-
-    };
-
-  }
-
-  // ---------------------------------------------------
-  // INSTALL WORKER
-  // ---------------------------------------------------
-
-  if (parsed.intent === "install") {
-
-    // ENGINE INSTALL
-    if (ENGINE_INSTALLS[parsed.name]) {
-
-      const engine = ENGINE_INSTALLS[parsed.name];
-
-      return {
-
-        action: "update",
-
-        worker: "update.engine",
-
-        payload: {
-
-          download_url: engine.url,
-
-          target_path: engine.target,
-
-          execute: true
-
-        }
-
-      };
-
-    }
-
-    // WORKER INSTALL
-    if (WORKER_INSTALLS[parsed.name]) {
-
-      const worker = WORKER_INSTALLS[parsed.name];
-
-      return {
-
-        action: "update",
-
-        worker: "update.engine",
-
-        payload: {
-
-          download_url: worker.url,
-
-          target_path: worker.target,
-
-          execute: false
-
-        }
-
-      };
-
-    }
-
-  }
-
-  // ---------------------------------------------------
-  // RUN WORKER
-  // ---------------------------------------------------
-
-  if (parsed.intent === "run") {
-
-    const worker = RUN_WORKERS[parsed.name];
-
-    if (!worker) return null;
-
-    return {
-
-      action: "run",
-
-      worker,
-
-      payload: {
-
-        target: parsed.name
-
-      }
-
-    };
-
-  }
-
-  // ---------------------------------------------------
-  // START ENGINE
-  // ---------------------------------------------------
-
-  if (parsed.intent === "start") {
-
-    const engine = START_ENGINES[parsed.name];
-
-    if (!engine) return null;
-
-    return {
-
-      action: "start",
-
-      worker: engine,
-
-      payload: {
-
-        target: parsed.name
-
-      }
-
-    };
-
-  }
-
-  return null;
+    ]
+  };
 }
-
 
 // =====================================================
 // BUILD NEXUS COMMAND
