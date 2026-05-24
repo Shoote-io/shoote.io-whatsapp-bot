@@ -605,7 +605,6 @@ async function getMachineInfo(machineId) {
 
 }
 
-
 // =====================================================
 // COMMAND RESULT WATCHER
 // =====================================================
@@ -783,7 +782,6 @@ async function watchCompletedCommands() {
 
 }
 
-
 // -------------------------------------------------
 //  VERIFY WEBHOOK
 // -------------------------------------------------
@@ -844,218 +842,316 @@ if (message.type === "text") {
     raw: message
   });
 
-
 // =====================================================
-// EXECUTE COMMAND
+// EXECUTE NEXUS COMMAND
 // =====================================================
 
-const parsed = parseCommand(lower);
+const parsed =
+  parseCommand(lower);
 
-if (parsed) {
+const nexusCommand =
+  buildNexusCommand(parsed);
 
-  log("⚡ NEXUS COMMAND:", parsed);
+// -----------------------------------------------------
+// VALID NEXUS COMMAND
+// -----------------------------------------------------
+
+if (nexusCommand) {
+
+  log(
+    "⚡ NEXUS COMMAND:",
+    nexusCommand
+  );
 
   try {
 
-const machineId =
+    // -------------------------------------------------
+    // MACHINE LINK
+    // -------------------------------------------------
+
+    const machineId =
       await getMachineIdByPhone(from);
 
     if (!machineId) {
 
       await sendWhatsAppMessage(
+
         from,
+
         "❌ Machine not linked."
       );
 
       return res.sendStatus(200);
     }
 
-const nexusCommand =
-     buildNexusCommand(parsed);
+    // -------------------------------------------------
+    // INSERT COMMAND
+    // -------------------------------------------------
 
-    if (!nexusCommand) {
+    await createCommand({
 
-      await sendWhatsAppMessage(
-        from,
-        "⚠️ Unknown Nexus command."
-      );
+      command_id:
+        nexusCommand.command_id,
 
-      return res.sendStatus(200);
+      execution_id:
+        nexusCommand.execution_id,
+
+      correlation_id:
+        nexusCommand.correlation_id,
+
+      machine_id:
+        machineId,
+
+      runtime_id:
+        null,
+
+      runtime_session_id:
+        null,
+
+      version:
+        nexusCommand.version,
+
+      organization:
+        null,
+
+      process_id:
+        null,
+
+      status:
+        nexusCommand.status,
+
+      intent:
+        nexusCommand.intent,
+
+      operation:
+        nexusCommand.operation,
+
+      target:
+        nexusCommand.target,
+
+      worker:
+        null,
+
+      engine:
+        null,
+
+      notified:
+        false,
+
+      execution:
+        nexusCommand.execution,
+
+      orchestration:
+        nexusCommand.orchestration,
+
+      permissions:
+        nexusCommand.permissions,
+
+      payload:
+        nexusCommand.payload,
+
+      result:
+        nexusCommand.result,
+
+      state:
+        nexusCommand.state,
+
+      telemetry:
+        nexusCommand.telemetry,
+
+      notes:
+        nexusCommand.notes,
+
+      error_message:
+        null,
+
+      failure_reason:
+        null,
+
+      created_at:
+        nexusCommand.created_at,
+
+      updated_at:
+        nexusCommand.updated_at,
+
+      started_at:
+        null,
+
+      completed_at:
+        null
+    });
+
+    // -------------------------------------------------
+    // MACHINE STATUS
+    // -------------------------------------------------
+
+    if (
+
+      nexusCommand.intent === "machine" &&
+
+      nexusCommand.operation === "status"
+
+    ) {
+
+      const machineInfo =
+        await getMachineInfo(machineId);
+
+      if (machineInfo) {
+
+        const telemetry =
+
+          typeof machineInfo.telemetry === "string"
+
+            ? JSON.parse(
+                machineInfo.telemetry
+              )
+
+            : machineInfo.telemetry || {};
+
+        const cpu =
+          telemetry?.hardware?.CPU?.NAME ||
+          "Unknown CPU";
+
+        const cores =
+          telemetry?.hardware?.CPU?.CORES ||
+          "?";
+
+        const threads =
+          telemetry?.hardware?.CPU?.THREADS ||
+          "?";
+
+        const ram =
+          telemetry?.hardware?.MEMORY?.TOTAL_GB ||
+          "?";
+
+        const totalStorage =
+          telemetry?.storage?.total_gb ||
+          "?";
+
+        const usedStorage =
+          telemetry?.storage?.used_gb ||
+          "?";
+
+        const freeStorage =
+          telemetry?.storage?.free_gb ||
+          "?";
+
+        await sendWhatsAppMessage(
+
+          from,
+
+          [
+
+            "🖥️ *Elmidor Nexus • Machine Status*",
+            "",
+
+            `🧠 Hostname: *${machineInfo.hostname || "UNKNOWN"}*`,
+
+            `📍 Machine: *${machineInfo.computer_name || "UNKNOWN"}*`,
+
+            `🟢 Status: *${(machineInfo.status || "offline").toUpperCase()}*`,
+
+            `🛡️ Integrity: *${(machineInfo.integrity || "unknown").toUpperCase()}*`,
+
+            `🔐 Trust Level: *${(machineInfo.trust_level || "unknown").toUpperCase()}*`,
+
+            "",
+
+            `🌐 Public IP: ${machineInfo.public_ip || "N/A"}`,
+
+            `🏠 Local IP: ${machineInfo.local_ip || "N/A"}`,
+
+            "",
+
+            `⚙️ Runtime Version: ${machineInfo.runtime_version || "N/A"}`,
+
+            `🚀 Bootstrap: ${machineInfo.bootstrap_version || "N/A"}`,
+
+            "",
+
+            `💻 CPU: ${cpu}`,
+
+            `🧩 Cores: ${cores} / Threads: ${threads}`,
+
+            "",
+
+            "💾 Storage:",
+
+            `• Total: ${totalStorage} GB`,
+
+            `• Used: ${usedStorage} GB`,
+
+            `• Free: ${freeStorage} GB`,
+
+            "",
+
+            `🧠 RAM: ${ram} GB`,
+
+            `❌ Execution Failures: ${machineInfo.execution_failures || 0}`,
+
+            "",
+
+            "🕒 Last Heartbeat:",
+
+            `${machineInfo.last_heartbeat || "Unknown"}`,
+
+            "",
+
+            "━━━━━━━━━━━━━━━",
+
+            "🧠 Nexus Runtime Ecosystem",
+
+            "━━━━━━━━━━━━━━━",
+
+            "",
+
+            "Machine successfully linked",
+
+            "to the distributed runtime",
+
+            "ecosystem.",
+
+            "",
+
+            "Waiting for live telemetry",
+
+            "from orchestration workers..."
+
+          ].join("\n")
+        );
+      }
     }
 
-await createCommand({
+    // -------------------------------------------------
+    // DEFAULT QUEUE RESPONSE
+    // -------------------------------------------------
 
-  command_id:
-    nexusCommand.command_id,
+    else {
 
-  execution_id:
-    nexusCommand.execution_id,
+      await sendWhatsAppMessage(
 
-  correlation_id:
-    nexusCommand.correlation_id,
+        from,
 
-  machine_id:
-    machineId,
+        [
 
-  version:
-    nexusCommand.version,
+          "✅ Command queued",
+          "",
 
-  status:
-    "pending",
+          `🧠 Intent: ${nexusCommand.intent}`,
 
-  intent:
-    nexusCommand.intent,
+          `⚙️ Operation: ${nexusCommand.operation}`,
 
-  operation:
-    nexusCommand.operation,
+          `🎯 Target: ${nexusCommand.target || "none"}`,
 
-  target:
-    nexusCommand.target,
+          "",
 
-  worker:
-    nexusCommand.worker || null,
+          "📦 Status: queued"
 
-  engine:
-    nexusCommand.engine || null,
+        ].join("\n")
+      );
+    }
 
-  execution:
-    nexusCommand.execution,
-
-  orchestration:
-    nexusCommand.orchestration,
-
-  permissions:
-    nexusCommand.permissions,
-
-  payload:
-    nexusCommand.payload,
-
-  result:
-    nexusCommand.result,
-
-  state:
-    nexusCommand.state,
-
-  telemetry:
-    nexusCommand.telemetry,
-
-  notes:
-    nexusCommand.notes,
-
-  created_at:
-    nexusCommand.created_at,
-
-  updated_at:
-    nexusCommand.updated_at
-
-});
-
-const machineInfo =
-  await getMachineInfo(machineId);
-
-if (machineInfo) {
-
-const telemetry =
-  typeof machineInfo.telemetry === "string"
-    ? JSON.parse(machineInfo.telemetry)
-    : machineInfo.telemetry || {};
-
-const cpu =
-  telemetry?.hardware?.CPU?.NAME ||
-  "Unknown CPU";
-
-const cores =
-  telemetry?.hardware?.CPU?.CORES ||
-  "?";
-
-const threads =
-  telemetry?.hardware?.CPU?.THREADS ||
-  "?";
-
-const ram =
-  telemetry?.hardware?.MEMORY?.TOTAL_GB ||
-  "?";
-
-const totalStorage =
-  telemetry?.storage?.total_gb ||
-  "?";
-
-const usedStorage =
-  telemetry?.storage?.used_gb ||
-  "?";
-
-const freeStorage =
-  telemetry?.storage?.free_gb ||
-  "?";
-
-  await sendWhatsAppMessage(
-    from,
-
-    [
-
-    "🖥️ *Elmidor Nexus • Machine Status*",
-    "",
-
-    `🧠 Hostname: *${machineInfo.hostname || "UNKNOWN"}*`,
-
-    `📍 Machine: *${machineInfo.computer_name || "UNKNOWN"}*`,
-    `🟢 Status: *${(machineInfo.status || "offline").toUpperCase()}*`,
-
-    `🛡️ Integrity: *${(machineInfo.integrity || "unknown").toUpperCase()}*`,
-    `🔐 Trust Level: *${(machineInfo.trust_level || "unknown").toUpperCase()}*`,
-
-    "",
-
-    `🌐 Public IP: ${machineInfo.public_ip || "N/A"}`,
-    `🏠 Local IP: ${machineInfo.local_ip || "N/A"}`,
-
-    "",
-
-    `⚙️ Runtime Version: ${machineInfo.runtime_version || "N/A"}`,
-    `🚀 Bootstrap: ${machineInfo.bootstrap_version || "N/A"}`,
-
-    "",
-
-    `💻 CPU: ${cpu}`,
-    `🧩 Cores: ${cores} / Threads: ${threads}`,
-
-    "",
-
-    "💾 Storage:",
-    `• Total: ${totalStorage} GB`,
-    `• Used: ${usedStorage} GB`,
-    `• Free: ${freeStorage} GB`,
-
-    "",
-
-    `🧠 RAM: ${ram} GB`,
-    `❌ Execution Failures: ${machineInfo.execution_failures || 0}`,
-
-    "",
-
-    `🕒 Last Heartbeat:`,
-    `${machineInfo.last_heartbeat || "Unknown"}`,
-
-    "",
-
-    "━━━━━━━━━━━━━━━",
-    "🧠 Nexus Runtime Ecosystem",
-    "━━━━━━━━━━━━━━━",
-    "",
-    "Machine successfully linked",
-    "to the distributed runtime",
-    "ecosystem.",
-    "",
-    "Waiting for live telemetry",
-    "from orchestration workers..."
-
-  ].join("\n")
-
-);
-  
-  }
-    
- } catch (err) {
+  } catch (err) {
 
     logError(
       "Nexus command error:",
@@ -1063,14 +1159,14 @@ const freeStorage =
     );
 
     await sendWhatsAppMessage(
+
       from,
+
       "⚠️ Failed to queue Nexus command."
     );
-
   }
 
   return res.sendStatus(200);
-
 }
   
       if (
