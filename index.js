@@ -265,8 +265,61 @@ function buildNexusCommand(parsed) {
     return null;
   }
 
+  if (
+    !parsed.operation ||
+    parsed.operation.trim() === ""
+  ) {
+
+    return null;
+  }
+
   const now =
     new Date().toISOString();
+
+  // ---------------------------------------------------
+  // AUTO PERMISSIONS
+  // ---------------------------------------------------
+
+  const permissions = {
+
+    filesystem: false,
+
+    network: false,
+
+    shell: false,
+
+    elevated: false
+  };
+
+  // install
+  if (
+    parsed.intent === "install"
+  ) {
+
+    permissions.filesystem = true;
+
+    permissions.network = true;
+  }
+
+  // run
+  if (
+    parsed.intent === "run"
+  ) {
+
+    permissions.shell = true;
+  }
+
+  // start
+  if (
+    parsed.intent === "start"
+  ) {
+
+    permissions.shell = true;
+  }
+
+  // ---------------------------------------------------
+  // BUILD COMMAND
+  // ---------------------------------------------------
 
   return {
 
@@ -291,6 +344,13 @@ function buildNexusCommand(parsed) {
 
     updated_at:
       now,
+
+    // =================================================
+    // STATUS
+    // =================================================
+
+    status:
+      "pending",
 
     // =================================================
     // ROUTING
@@ -355,7 +415,7 @@ function buildNexusCommand(parsed) {
         "elmidor-nexus",
 
       dispatch_strategy:
-        "contract",
+        "intent-contract",
 
       recovery_strategy:
         "retry"
@@ -365,20 +425,7 @@ function buildNexusCommand(parsed) {
     // SECURITY
     // =================================================
 
-    permissions: {
-
-      filesystem:
-        false,
-
-      network:
-        false,
-
-      shell:
-        false,
-
-      elevated:
-        false
-    },
+    permissions,
 
     // =================================================
     // PAYLOAD
@@ -392,9 +439,23 @@ function buildNexusCommand(parsed) {
       normalized:
         parsed.normalized,
 
-      arguments: {},
+      arguments: {
 
-      metadata: {}
+        operation:
+          parsed.operation,
+
+        target:
+          parsed.target
+      },
+
+      metadata: {
+
+        parser:
+          "universal-intent-parser",
+
+        parser_version:
+          "1.0.0"
+      }
     },
 
     // =================================================
@@ -430,7 +491,17 @@ function buildNexusCommand(parsed) {
       previous:
         null,
 
-      history: []
+      history: [
+
+        {
+
+          state:
+            "queued",
+
+          timestamp:
+            now
+        }
+      ]
     },
 
     // =================================================
@@ -468,10 +539,12 @@ function buildNexusCommand(parsed) {
     notes: [
 
       {
-        level: "info",
+
+        level:
+          "info",
 
         message:
-          "Command queued.",
+          "Command accepted into orchestration queue.",
 
         timestamp:
           now
@@ -810,17 +883,72 @@ const nexusCommand =
       return res.sendStatus(200);
     }
 
-    await createCommand({
+await createCommand({
 
-      machine_id: machineId,
+  command_id:
+    nexusCommand.command_id,
 
-      action: nexusCommand.action,
+  execution_id:
+    nexusCommand.execution_id,
 
-      worker: nexusCommand.worker,
+  correlation_id:
+    nexusCommand.correlation_id,
 
-      payload: nexusCommand.payload
+  machine_id:
+    machineId,
 
-    });
+  version:
+    nexusCommand.version,
+
+  status:
+    "pending",
+
+  intent:
+    nexusCommand.intent,
+
+  operation:
+    nexusCommand.operation,
+
+  target:
+    nexusCommand.target,
+
+  worker:
+    nexusCommand.worker || null,
+
+  engine:
+    nexusCommand.engine || null,
+
+  execution:
+    nexusCommand.execution,
+
+  orchestration:
+    nexusCommand.orchestration,
+
+  permissions:
+    nexusCommand.permissions,
+
+  payload:
+    nexusCommand.payload,
+
+  result:
+    nexusCommand.result,
+
+  state:
+    nexusCommand.state,
+
+  telemetry:
+    nexusCommand.telemetry,
+
+  notes:
+    nexusCommand.notes,
+
+  created_at:
+    nexusCommand.created_at,
+
+  updated_at:
+    nexusCommand.updated_at
+
+});
 
 const machineInfo =
   await getMachineInfo(machineId);
