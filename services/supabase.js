@@ -100,72 +100,225 @@ if (error) {
 console.log("✅ Reply inserted:", data);
   return data;
 }
+
 // --------------------------------------------------
-// COMMANDS (NEW FEATURE)
+// COMMANDS
 // --------------------------------------------------
-export async function createCommand({
-  machine_id,
-  action,
-  worker,
-  payload = {}
-}) {
+
+export async function createCommand(command) {
 
   if (!supabaseAdmin) {
-    console.error("❌ Supabase not initialized");
+
+    console.error(
+      "❌ Supabase not initialized"
+    );
+
     return null;
   }
 
-  if (!machine_id) {
-    console.error("❌ Missing machine_id");
+  if (!command) {
+
+    console.error(
+      "❌ Missing command object"
+    );
+
     return null;
   }
 
-  if (!action) {
-    console.error("❌ Missing action");
+  if (!command.machine_id) {
+
+    console.error(
+      "❌ Missing machine_id"
+    );
+
     return null;
   }
 
-  if (!worker) {
-    console.error("❌ Missing worker");
+  if (!command.intent) {
+
+    console.error(
+      "❌ Missing intent"
+    );
+
     return null;
   }
 
-  // normalize payload
-  let cleanPayload = payload;
+  // --------------------------------------------------
+  // NORMALIZE JSON FIELDS
+  // --------------------------------------------------
 
-  if (typeof cleanPayload === "string") {
-    try {
-      cleanPayload = JSON.parse(cleanPayload);
-    } catch {
-      cleanPayload = {};
+  const normalizeJson = (value, fallback) => {
+
+    if (!value) {
+      return fallback;
     }
-  }
 
-  if (!cleanPayload || typeof cleanPayload !== "object") {
-    cleanPayload = {};
-  }
+    if (typeof value === "string") {
 
-  const commandPayload = {
-    machine_id,
-    command_id: crypto.randomUUID(),
-    action,
-    status: "pending",
-    worker,
-    payload: cleanPayload
+      try {
+        return JSON.parse(value);
+      } catch {
+
+        return fallback;
+      }
+    }
+
+    if (typeof value === "object") {
+      return value;
+    }
+
+    return fallback;
   };
 
-  const { data, error } = await supabaseAdmin
-    .from("commands")
-    .insert([commandPayload])
-    .select()
-    .single();
+  // --------------------------------------------------
+  // BUILD INSERT PAYLOAD
+  // --------------------------------------------------
+
+  const payload = {
+
+    command_id:
+      command.command_id ||
+      crypto.randomUUID(),
+
+    execution_id:
+      command.execution_id || null,
+
+    correlation_id:
+      command.correlation_id || null,
+
+    machine_id:
+      command.machine_id,
+
+    runtime_id:
+      command.runtime_id || null,
+
+    runtime_session_id:
+      command.runtime_session_id || null,
+
+    version:
+      command.version || "2.0.0",
+
+    organization:
+      command.organization || null,
+
+    process_id:
+      command.process_id || null,
+
+    status:
+      command.status || "pending",
+
+    intent:
+      command.intent,
+
+    operation:
+      command.operation || null,
+
+    target:
+      command.target || null,
+
+    worker:
+      command.worker || null,
+
+    engine:
+      command.engine || null,
+
+    notified:
+      false,
+
+    execution:
+      normalizeJson(
+        command.execution,
+        {}
+      ),
+
+    orchestration:
+      normalizeJson(
+        command.orchestration,
+        {}
+      ),
+
+    permissions:
+      normalizeJson(
+        command.permissions,
+        {}
+      ),
+
+    payload:
+      normalizeJson(
+        command.payload,
+        {}
+      ),
+
+    result:
+      normalizeJson(
+        command.result,
+        {}
+      ),
+
+    state:
+      normalizeJson(
+        command.state,
+        {}
+      ),
+
+    telemetry:
+      normalizeJson(
+        command.telemetry,
+        {}
+      ),
+
+    notes:
+      normalizeJson(
+        command.notes,
+        []
+      ),
+
+    error_message:
+      null,
+
+    failure_reason:
+      null,
+
+    created_at:
+      command.created_at ||
+      new Date().toISOString(),
+
+    updated_at:
+      command.updated_at ||
+      new Date().toISOString(),
+
+    started_at:
+      null,
+
+    completed_at:
+      null
+  };
+
+  // --------------------------------------------------
+  // INSERT
+  // --------------------------------------------------
+
+  const { data, error } =
+    await supabaseAdmin
+      .from("commands")
+      .insert([payload])
+      .select()
+      .single();
 
   if (error) {
-    console.error("❌ createCommand error:", error);
+
+    console.error(
+      "❌ createCommand error:",
+      error
+    );
+
     return null;
   }
 
-  console.log("✅ Command queued:", data.command_id);
+  console.log(
+    "✅ Command queued:",
+    data.command_id
+  );
 
   return data;
 }
