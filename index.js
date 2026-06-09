@@ -209,7 +209,38 @@ function parseCommand(text) {
   // ---------------------------------------------------
   // VALIDATE INTENT
   // ---------------------------------------------------
+  if (intent === "install") {
 
+  if (tokens.length < 4) {
+    return null;
+  }
+
+  const extension =
+    tokens[tokens.length - 1];
+
+  const resource =
+    tokens
+      .slice(1, -1)
+      .join(".");
+
+  return {
+
+    intent,
+
+    operation: "install",
+
+    target: resource,
+
+    resource,
+
+    extension,
+
+    raw: text,
+
+    normalized: cleaned
+  };
+}
+  
   if (
     !NEXUS_INTENTS.includes(intent)
   ) {
@@ -431,22 +462,28 @@ function buildNexusCommand(parsed) {
     // PAYLOAD
     // =================================================
 
-    payload: {
+payload: {
 
-      raw:
-        parsed.raw,
+  raw:
+    parsed.raw,
 
-      normalized:
-        parsed.normalized,
+  normalized:
+    parsed.normalized,
 
-      arguments: {
+  arguments: {
 
-        operation:
-          parsed.operation,
+    operation:
+      parsed.operation,
 
-        target:
-          parsed.target
-      },
+    target:
+      parsed.target,
+
+    resource:
+      parsed.resource || null,
+
+    extension:
+      parsed.extension || null
+  },
 
       metadata: {
 
