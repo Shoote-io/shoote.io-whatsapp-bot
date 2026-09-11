@@ -30,7 +30,6 @@ export async function generateAIReply(userText, options = {}) {
     model: "openai/gpt-oss-20b",
     messages: [
       {
-        {
   role: "system",
   content: `
 Ou se NEXUS — yon Digital Stewardship Operating System.
