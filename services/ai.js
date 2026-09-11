@@ -92,8 +92,31 @@ RÈG REPONS
 - Kenbe yon ton pwofesyonèl, presi, epi natirèl.
 `
 },
-      { role: "user", content: safeText }
-    ],
-    temperature: 0.7,
-    max_tokens: 300
+          { role: "user", content: safeText }
+        ],
+        temperature: 0.7,
+        max_tokens: 300
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${GROQ_KEY}`,
+          "Content-Type": "application/json"
+        },
+        timeout: 10000
+      }
+    );
+
+    const content = response?.data?.choices?.[0]?.message?.content;
+
+    if (!content) {
+      console.warn("AI empty response");
+      return "Mwen pa jwenn repons nan AI a.";
+    }
+
+    return content.trim();
+
+  } catch (error) {
+    console.error("AI Error:", error.response?.data || error.message);
+    return "Gen yon pwoblèm ak sèvè AI a.";
   }
+}
