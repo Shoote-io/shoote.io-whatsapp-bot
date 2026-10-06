@@ -273,6 +273,12 @@ export async function createCommand(command) {
         []
       ),
 
+    reply_context:
+  normalizeJson(
+    command.reply_context,
+    {}
+  ),
+    
     error_message:
       null,
 
