@@ -680,17 +680,16 @@ async function watchCompletedCommands() {
         // FIND PHONE
         // ------------------------------------------
 
-        const { data: client } =
-          await supabaseAdmin
-            .from("clients")
-            .select("phone_number")
-            .eq("machine_id", cmd.machine_id)
-            .maybeSingle();
+const replyTo =
+  cmd.reply_context?.phone_number;
 
-        if (!client?.phone_number) {
-          continue;
-        }
-
+if (!replyTo) {
+  console.error(
+    "❌ Missing reply destination for command:",
+    cmd.command_id
+  );
+  continue;
+}
         // ------------------------------------------
         // FORMAT RESULT
         // ------------------------------------------
@@ -777,8 +776,7 @@ async function watchCompletedCommands() {
         // ------------------------------------------
 
         await sendWhatsAppMessage(
-          client.phone_number,
-          message
+          replyTo, message
         );
 
         // ------------------------------------------
@@ -975,6 +973,10 @@ if (nexusCommand) {
       notified:
         false,
 
+      reply_context: {
+        phone_number: from
+      },
+      
       execution:
         nexusCommand.execution,
 
