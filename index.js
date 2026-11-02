@@ -643,178 +643,104 @@ async function getMachineInfo(machineId) {
 }
 
 // =====================================================
-// COMMAND RESULT WATCHER
+// RUNTIME EVENTS WATCHER
 // =====================================================
 
-async function watchCompletedCommands() {
+async function watchRuntimeEvents() {
 
   try {
 
-    const { data: commands, error } =
+    const { data: events, error } =
       await supabaseAdmin
-        .from("commands")
-        .select("*")
-        .eq("status", "completed")
-        .eq("notified", false)
+        .from("runtime_events")
+        .select(`
+          id,
+          message_id,
+          machine_id,
+          message_text,
+          delivery_channel,
+          status,
+          sent,
+          clients!inner (
+            phone_number
+          )
+        `)
+        .eq("delivery_channel", "whatsapp")
+        .eq("sent", false)
+        .eq("status", "PENDING_DELIVERY")
         .order("created_at", { ascending: true })
         .limit(10);
 
     if (error) {
-
-      console.error(
-        "Watcher error:",
-        error.message
-      );
-
+      console.error("Runtime events watcher:", error.message);
       return;
-
     }
 
-    if (!commands?.length) return;
+    if (!events?.length) return;
 
-    for (const cmd of commands) {
+    for (const event of events) {
 
       try {
 
-        // ------------------------------------------
-        // FIND PHONE
-        // ------------------------------------------
+        const phone = event.clients?.phone_number;
 
-const replyTo =
-  cmd.reply_context?.phone_number;
-
-if (!replyTo) {
-  console.error(
-    "❌ Missing reply destination for command:",
-    cmd.command_id
-  );
-  continue;
-}
-        // ------------------------------------------
-        // FORMAT RESULT
-        // ------------------------------------------
-
-        const result =
-          typeof cmd.result === "string"
-            ? JSON.parse(cmd.result)
-            : cmd.result;
-
-        let message =
-          `✅ *Scan Status Completed*\n` +
-          `Machine: ${result.machine}\n` +
-          `Worker: ${cmd.worker}\n\n`;
-
-        // ------------------------------------------
-        // ACTIVE ENGINES
-        // ------------------------------------------
-
-        if (result.runtime?.length) {
-
-          message += "⚡ Active Engines:\n";
-
-          for (const r of result.runtime) {
-
-            message +=
-              `• ${r.engine} → ${
-                r.running
-                  ? "running ✅"
-                  : "offline ❌"
-              }\n`;
-
-          }
-
-          message += "\n";
-
+        if (!phone || !event.message_text) {
+          console.error(
+            "Invalid delivery event:",
+            event.message_id
+          );
+          continue;
         }
-
-        // ------------------------------------------
-        // AVAILABLE TOOLS
-        // ------------------------------------------
-
-        if (result.tools?.length) {
-
-          message += "🧰 Available Tools:\n";
-
-          for (const t of result.tools) {
-
-            message +=
-              `• ${t.tool} ${
-                t.available
-                  ? "✅"
-                  : "❌"
-              }\n`;
-
-          }
-
-          message += "\n";
-
-        }
-
-        // ------------------------------------------
-        // SUMMARY
-        // ------------------------------------------
-
-        message +=
-          "📊 Summary:\n" +
-
-          `• Engines Running: ${
-            result.summary?.engines_running || 0
-          }/${
-            result.summary?.engines_total || 0
-          }\n` +
-
-          `• Tools Available: ${
-            result.summary?.tools_available || 0
-          }/${
-            result.summary?.tools_total || 0
-          }\n\n` +
-
-          "🟢 System ready for orchestration tasks.";
-
-        // ------------------------------------------
-        // SEND MESSAGE
-        // ------------------------------------------
 
         await sendWhatsAppMessage(
-          replyTo, message
+          phone,
+          event.message_text
         );
 
-        // ------------------------------------------
-        // MARK NOTIFIED
-        // ------------------------------------------
+        const { error: updateError } =
+          await supabaseAdmin
+            .from("runtime_events")
+            .update({
+              sent: true,
+              status: "SENT",
+              sent_at: new Date().toISOString()
+            })
+            .eq("id", event.id)
+            .eq("sent", false);
 
-        await supabaseAdmin
-          .from("commands")
-          .update({
-            notified: true
-          })
-          .eq("id", cmd.id);
+        if (updateError) {
+          console.error(
+            "Delivery state update failed:",
+            event.message_id,
+            updateError.message
+          );
+          continue;
+        }
 
         console.log(
-          "✅ Result notification sent:",
-          cmd.command_id
+          "Runtime event sent:",
+          event.message_id
         );
 
       } catch (err) {
 
         console.error(
-          "Notify command failed:",
+          "Runtime event delivery failed:",
+          event.message_id,
           err.message
         );
 
       }
-
     }
 
   } catch (err) {
 
     console.error(
-      "Watcher fatal:",
+      "Runtime events watcher fatal:",
       err.message
     );
 
   }
-
 }
 
 // -------------------------------------------------
