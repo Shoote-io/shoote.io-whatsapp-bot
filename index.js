@@ -1289,7 +1289,7 @@ app.listen(PORT, () => {
 
 setInterval(() => {
 
-  watchCompletedCommands();
+  watchRuntimeEvents();
 
 }, 5000);
 
