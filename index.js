@@ -91,13 +91,16 @@ async function safeSaveReply(payload) {
 // -----------------------------
 //  Send WhatsApp Message
 // -----------------------------
-async function sendWhatsAppMessage(to, message) {
-  try {
-    if (!message) return; // ADD (prevent empty send)
-    // ADD before fetch
-console.log("📤 Sending message:", message);
 
-    await fetch(
+async function sendWhatsAppMessage(to, message) {
+  if (!message) {
+    return { success: false, error: "EMPTY_MESSAGE" };
+  }
+
+  try {
+    console.log("📤 Sending message:", message);
+
+    const response = await fetch(
       `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`,
       {
         method: "POST",
@@ -113,15 +116,54 @@ console.log("📤 Sending message:", message);
       }
     );
 
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(
+        "WhatsApp API rejected message:",
+        response.status,
+        data
+      );
+
+      return {
+        success: false,
+        error: data.error?.message || "WHATSAPP_API_REJECTED",
+        code: data.error?.code || response.status
+      };
+    }
+
+    const whatsappMessageId = data.messages?.[0]?.id;
+
+    if (!whatsappMessageId) {
+      console.error("WhatsApp returned no message ID:", data);
+
+      return {
+        success: false,
+        error: "WHATSAPP_MESSAGE_ID_MISSING"
+      };
+    }
+
     await safeSaveReply({
       to_number: to,
       body: message,
       media_url: null
     });
 
-    log("📤 Message sent →", to);
+    log("📤 WhatsApp accepted →", to);
+
+    return {
+      success: true,
+      message_id: whatsappMessageId,
+      status: "ACCEPTED"
+    };
+
   } catch (err) {
     logError("WhatsApp Send Error:", err?.message);
+
+    return {
+      success: false,
+      error: err?.message || "WHATSAPP_SEND_ERROR"
+    };
   }
 }
 
@@ -692,31 +734,39 @@ async function watchRuntimeEvents() {
           continue;
         }
 
-        await sendWhatsAppMessage(
+        const delivery = await sendWhatsAppMessage(
           phone,
           event.message_text
         );
+
+        if (!delivery?.success) {
+          console.error(
+            "Runtime event not accepted:",
+            event.message_id,
+            delivery?.error
+          );
+
+          continue;
+        }
 
         const { error: updateError } =
           await supabaseAdmin
             .from("runtime_events")
             .update({
-              sent: true,
-              status: "SENT",
-              sent_at: new Date().toISOString()
+              status: "ACCEPTED",
+              sent: false,
+              updated_at: new Date().toISOString()
             })
             .eq("id", event.id)
             .eq("sent", false);
 
-        if (updateError) {
-          console.error(
-            "Delivery state update failed:",
-            event.message_id,
-            updateError.message
+         if (updateError) {
+           console.error(
+             "Runtime event state update failed:",
+             event.message_id,
+             updateError.message
           );
-          continue;
         }
-
         console.log(
           "Runtime event sent:",
           event.message_id
