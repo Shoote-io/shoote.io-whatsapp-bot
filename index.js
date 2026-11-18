@@ -3,6 +3,7 @@
 //  (Supabase Logging + Robust Error Handling)
 // -----------------------------------------------
 
+import crypto from "node:crypto";
 import express from "express";
 import bodyParser from "body-parser";
 import fetch from "node-fetch";
@@ -93,13 +94,28 @@ async function safeSaveReply(payload) {
 // -----------------------------
 
 async function sendWhatsAppMessage(to, message) {
-  if (!message) {
-    return { success: false, error: "EMPTY_MESSAGE" };
+  if (!to) {
+    return {
+      success: false,
+      error: "RECIPIENT_MISSING"
+    };
+  }
+
+  if (!message || !String(message).trim()) {
+    return {
+      success: false,
+      error: "EMPTY_MESSAGE"
+    };
+  }
+
+  if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
+    return {
+      success: false,
+      error: "WHATSAPP_CONFIGURATION_MISSING"
+    };
   }
 
   try {
-    console.log("📤 Sending message:", message);
-
     const response = await fetch(
       `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`,
       {
@@ -111,12 +127,22 @@ async function sendWhatsAppMessage(to, message) {
         body: JSON.stringify({
           messaging_product: "whatsapp",
           to,
-          text: { body: message }
+          type: "text",
+          text: {
+            body: String(message)
+          }
         })
       }
     );
 
-    const data = await response.json();
+    const raw = await response.text();
+
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = { raw };
+    }
 
     if (!response.ok) {
       console.error(
@@ -127,38 +153,57 @@ async function sendWhatsAppMessage(to, message) {
 
       return {
         success: false,
-        error: data.error?.message || "WHATSAPP_API_REJECTED",
-        code: data.error?.code || response.status
+        error:
+          data?.error?.message ||
+          `WHATSAPP_API_REJECTED_${response.status}`,
+        code:
+          data?.error?.code ||
+          response.status
       };
     }
 
-    const whatsappMessageId = data.messages?.[0]?.id;
+    const whatsappMessageId = data?.messages?.[0]?.id;
 
     if (!whatsappMessageId) {
-      console.error("WhatsApp returned no message ID:", data);
+      console.error(
+        "WhatsApp API returned success without a message ID:",
+        data
+      );
 
       return {
         success: false,
-        error: "WHATSAPP_MESSAGE_ID_MISSING"
+        error: "WHATSAPP_MESSAGE_ID_MISSING",
+        code: response.status
       };
     }
 
+    // The message is considered sent only after Meta accepted it and
+    // returned a WhatsApp message ID.
     await safeSaveReply({
       to_number: to,
-      body: message,
+      body: String(message),
       media_url: null
     });
 
-    log("📤 WhatsApp accepted →", to);
+    log(
+      "📤 WhatsApp accepted:",
+      to,
+      "message_id=",
+      whatsappMessageId
+    );
 
     return {
       success: true,
       message_id: whatsappMessageId,
-      status: "ACCEPTED"
+      status: "ACCEPTED",
+      http_status: response.status
     };
 
   } catch (err) {
-    logError("WhatsApp Send Error:", err?.message);
+    logError(
+      "WhatsApp Send Error:",
+      err?.message || err
+    );
 
     return {
       success: false,
@@ -688,110 +733,372 @@ async function getMachineInfo(machineId) {
 // RUNTIME EVENTS WATCHER
 // =====================================================
 
-async function watchRuntimeEvents() {
+// =====================================================
+// RESPONSE DELIVERY WORKER
+// =====================================================
+//
+// This worker is intentionally independent from the incoming
+// WhatsApp webhook.
+//
+// The response pipeline writes RESPONSE_DELIVERY_CANDIDATE rows
+// into runtime_events. This worker continuously discovers rows
+// that still need delivery, claims them, sends them to WhatsApp,
+// and only then marks them as sent.
+//
+// IMPORTANT:
+// - Incoming WhatsApp traffic does NOT wake this worker.
+// - Listener activity does NOT need to trigger this worker.
+// - `sent=true` is written only after Meta accepts the message.
+// - Existing ACCEPTED + sent=false rows are also considered
+//   deliverable because older generator versions produced that
+//   state.
+//
+// =====================================================
 
+const RESPONSE_DELIVERY_POLL_MS = 5000;
+const RESPONSE_DELIVERY_BATCH_SIZE = 10;
+
+let responseDeliveryWorkerRunning = false;
+let responseDeliveryWorkerTimer = null;
+
+async function claimRuntimeEvent(eventId) {
   try {
-
-    const { data: events, error } =
-      await supabaseAdmin
-        .from("runtime_events")
-        .select(`
-          id,
-          message_id,
-          machine_id,
-          message_text,
-          delivery_channel,
-          status,
-          sent,
-          clients!inner (
-            phone_number
-          )
-        `)
-        .eq("delivery_channel", "whatsapp")
-        .eq("sent", false)
-        .eq("status", "PENDING_DELIVERY")
-        .order("created_at", { ascending: true })
-        .limit(10);
+    const { data, error } = await supabaseAdmin
+      .from("runtime_events")
+      .update({
+        status: "DELIVERY_IN_PROGRESS",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", eventId)
+      .eq("sent", false)
+      .in("status", [
+        "PENDING_DELIVERY",
+        "ACCEPTED"
+      ])
+      .select("id")
+      .maybeSingle();
 
     if (error) {
-      console.error("Runtime events watcher:", error.message);
+      console.error(
+        "Runtime event claim failed:",
+        eventId,
+        error.message
+      );
+
+      return false;
+    }
+
+    return Boolean(data?.id);
+
+  } catch (err) {
+    console.error(
+      "Runtime event claim exception:",
+      eventId,
+      err?.message || err
+    );
+
+    return false;
+  }
+}
+
+async function markRuntimeEventDelivered(
+  eventId,
+  whatsappMessageId
+) {
+  try {
+    const currentTime =
+      new Date().toISOString();
+
+    const { data, error } = await supabaseAdmin
+      .from("runtime_events")
+      .update({
+        status: "ACCEPTED",
+        sent: true,
+        sent_at: currentTime,
+        updated_at: currentTime
+      })
+      .eq("id", eventId)
+      .eq("sent", false)
+      .select("id, sent, sent_at")
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        "Runtime event delivery state update failed:",
+        eventId,
+        error.message
+      );
+
+      return false;
+    }
+
+    if (!data?.id || data.sent !== true) {
+      console.error(
+        "Runtime event delivery state was not confirmed:",
+        eventId
+      );
+
+      return false;
+    }
+
+    log(
+      "✅ Runtime event marked SENT:",
+      eventId,
+      "whatsapp_message_id=",
+      whatsappMessageId
+    );
+
+    return true;
+
+  } catch (err) {
+    console.error(
+      "Runtime event delivery state exception:",
+      eventId,
+      err?.message || err
+    );
+
+    return false;
+  }
+}
+
+async function releaseRuntimeEventClaim(eventId) {
+  try {
+    const { error } = await supabaseAdmin
+      .from("runtime_events")
+      .update({
+        status: "PENDING_DELIVERY",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", eventId)
+      .eq("sent", false)
+      .eq("status", "DELIVERY_IN_PROGRESS");
+
+    if (error) {
+      console.error(
+        "Runtime event claim release failed:",
+        eventId,
+        error.message
+      );
+
+      return false;
+    }
+
+    return true;
+
+  } catch (err) {
+    console.error(
+      "Runtime event claim release exception:",
+      eventId,
+      err?.message || err
+    );
+
+    return false;
+  }
+}
+
+async function fetchPendingRuntimeEvents() {
+  const { data: events, error } =
+    await supabaseAdmin
+      .from("runtime_events")
+      .select(`
+        id,
+        message_id,
+        machine_id,
+        message_text,
+        delivery_channel,
+        status,
+        sent,
+        created_at,
+        updated_at,
+        clients!inner (
+          phone_number
+        )
+      `)
+      .eq("delivery_channel", "whatsapp")
+      .eq("sent", false)
+      .in("status", [
+        "PENDING_DELIVERY",
+        "ACCEPTED"
+      ])
+      .order("created_at", { ascending: true })
+      .limit(RESPONSE_DELIVERY_BATCH_SIZE);
+
+  if (error) {
+    throw error;
+  }
+
+  return events || [];
+}
+
+async function processRuntimeEventDelivery(event) {
+  const eventId = event?.id;
+  const messageId = event?.message_id;
+
+  if (!eventId) {
+    console.error(
+      "Runtime event skipped: missing database id."
+    );
+    return;
+  }
+
+  const phone =
+    event?.clients?.phone_number || null;
+
+  const message =
+    event?.message_text || null;
+
+  if (!phone || !message) {
+    console.error(
+      "Runtime event invalid for delivery:",
+      {
+        id: eventId,
+        message_id: messageId,
+        has_phone: Boolean(phone),
+        has_message: Boolean(message)
+      }
+    );
+
+    return;
+  }
+
+  // Atomic claim. If another worker instance already claimed
+  // this row, no message is sent by this instance.
+  const claimed =
+    await claimRuntimeEvent(eventId);
+
+  if (!claimed) {
+    log(
+      "↪️ Runtime event already claimed or no longer pending:",
+      messageId || eventId
+    );
+
+    return;
+  }
+
+  try {
+    log(
+      "📨 Delivering runtime event:",
+      messageId || eventId
+    );
+
+    const delivery =
+      await sendWhatsAppMessage(
+        phone,
+        message
+      );
+
+    if (!delivery?.success) {
+      console.error(
+        "Runtime event WhatsApp delivery failed:",
+        messageId || eventId,
+        delivery?.error
+      );
+
+      await releaseRuntimeEventClaim(eventId);
       return;
     }
 
-    if (!events?.length) return;
+    const stateSaved =
+      await markRuntimeEventDelivered(
+        eventId,
+        delivery.message_id
+      );
+
+    if (!stateSaved) {
+      console.error(
+        "⚠️ WhatsApp accepted the message, but the runtime event could not be confirmed as SENT:",
+        messageId || eventId
+      );
+
+      // Do NOT blindly resend here. Meta already accepted the
+      // message. The row remains sent=false so it can be audited
+      // and reconciled instead of creating an automatic duplicate.
+      return;
+    }
+
+    log(
+      "📤 Runtime event delivered successfully:",
+      messageId || eventId
+    );
+
+  } catch (err) {
+    console.error(
+      "Runtime event delivery exception:",
+      messageId || eventId,
+      err?.message || err
+    );
+
+    await releaseRuntimeEventClaim(eventId);
+  }
+}
+
+async function runResponseDeliveryCycle() {
+  if (responseDeliveryWorkerRunning) {
+    return;
+  }
+
+  responseDeliveryWorkerRunning = true;
+
+  try {
+    const events =
+      await fetchPendingRuntimeEvents();
+
+    if (!events.length) {
+      return;
+    }
+
+    log(
+      "🔎 Response delivery cycle:",
+      events.length,
+      "candidate(s)"
+    );
 
     for (const event of events) {
-
-      try {
-
-        const phone = event.clients?.phone_number;
-
-        if (!phone || !event.message_text) {
-          console.error(
-            "Invalid delivery event:",
-            event.message_id
-          );
-          continue;
-        }
-
-        const delivery = await sendWhatsAppMessage(
-          phone,
-          event.message_text
-        );
-
-        if (!delivery?.success) {
-          console.error(
-            "Runtime event not accepted:",
-            event.message_id,
-            delivery?.error
-          );
-
-          continue;
-        }
-
-        const { error: updateError } =
-          await supabaseAdmin
-            .from("runtime_events")
-            .update({
-              status: "ACCEPTED",
-              sent: false,
-              updated_at: new Date().toISOString()
-            })
-            .eq("id", event.id)
-            .eq("sent", false);
-
-         if (updateError) {
-           console.error(
-             "Runtime event state update failed:",
-             event.message_id,
-             updateError.message
-          );
-        }
-        console.log(
-          "Runtime event sent:",
-          event.message_id
-        );
-
-      } catch (err) {
-
-        console.error(
-          "Runtime event delivery failed:",
-          event.message_id,
-          err.message
-        );
-
-      }
+      await processRuntimeEventDelivery(event);
     }
 
   } catch (err) {
-
     console.error(
-      "Runtime events watcher fatal:",
-      err.message
+      "Response delivery worker cycle failed:",
+      err?.message || err
     );
 
+  } finally {
+    responseDeliveryWorkerRunning = false;
   }
 }
+
+function scheduleResponseDeliveryWorker() {
+  if (responseDeliveryWorkerTimer) {
+    return;
+  }
+
+  const scheduleNext = async () => {
+    await runResponseDeliveryCycle();
+
+    responseDeliveryWorkerTimer =
+      setTimeout(
+        scheduleNext,
+        RESPONSE_DELIVERY_POLL_MS
+      );
+  };
+
+  // Run immediately at startup. Do not wait for an incoming
+  // WhatsApp message to activate delivery.
+  scheduleNext().catch(err => {
+    console.error(
+      "Response delivery worker startup failed:",
+      err?.message || err
+    );
+
+    responseDeliveryWorkerTimer =
+      setTimeout(
+        scheduleNext,
+        RESPONSE_DELIVERY_POLL_MS
+      );
+  });
+}
+
 
 // -------------------------------------------------
 //  VERIFY WEBHOOK
@@ -1329,17 +1636,38 @@ return res.sendStatus(200);
 // --------------------------
 //  Start Server
 // --------------------------
-app.listen(PORT, () => {
+
+const server = app.listen(PORT, () => {
   log(`🚀 Server running on port ${PORT}`);
+  log(
+    `📨 Response delivery worker online. Poll=${RESPONSE_DELIVERY_POLL_MS}ms`
+  );
+
+  scheduleResponseDeliveryWorker();
 });
 
 // =====================================================
-// START COMMAND WATCHER
+// GRACEFUL SHUTDOWN
 // =====================================================
 
-setInterval(() => {
+function shutdown(signal) {
+  log(`🛑 ${signal} received. Shutting down...`);
 
-  watchRuntimeEvents();
+  if (responseDeliveryWorkerTimer) {
+    clearTimeout(responseDeliveryWorkerTimer);
+    responseDeliveryWorkerTimer = null;
+  }
 
-}, 5000);
+  server.close(() => {
+    log("🛑 Server closed.");
+    process.exit(0);
+  });
 
+  setTimeout(() => {
+    logError("Forced shutdown after timeout.");
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
