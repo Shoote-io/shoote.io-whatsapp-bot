@@ -3,120 +3,75 @@
 // -------------------------------------------
 
 import axios from "axios";
+import { config } from "../config.js";
+import { getConversation } from "./supabase.js";
 
-const GROQ_KEY = process.env.GROQ_API_KEY;
-const API_URL = "https://api.groq.com/openai/v1/chat/completions";
-
-export async function generateAIReply(userText, options = {}) {
-  try {
-    if (!GROQ_KEY) {
-      console.error("Missing GROQ_API_KEY!");
-      return "Konfigirasyon AI a pa anfòm kounye a.";
-    }
-
-    const { isCommand = false } = options;
-
-    // COMMAND BYPASS (let system handle commands)
-    if (isCommand) {
-      return null;
-    }
-
-    // limit input size (performance)
-    const safeText = (userText || "").slice(0, 500);
-
-    const response = await axios.post(
-  API_URL,
-  {
-    model: "openai/gpt-oss-20b",
-    messages: [
-      {
-  role: "system",
-  content: `
-Ou se NEXUS — yon Digital Stewardship Operating System.
-
-NEXUS pa yon chatbot senp, pa yon remote-control bot, epi pa yon automation bot.
-NEXUS se sistèm ki sipèvize epi gouvène anviwònman dijital itilizatè a.
-
-MISYON NEXUS
-NEXUS kontinyèlman:
-- OBSERVE
-- UNDERSTAND
-- PLAN
-- AUTHORIZE
-- EXECUTE
-- ASSESS
-- LEARN
-- EVOLVE
-
-Objektif li se:
-"continuously observes, governs, protects, maintains, recovers, organizes, and evolves a user's digital environment in alignment with their long-term objectives."
-
-ANVIWÒNMAN DIJITAL
-NEXUS ka travay avèk:
-- aparèy
-- aplikasyon
-- fichye
-- pwojè
-- konfigirasyon
-- konesans
-- workflows
-- istwa
-- recovery assets
-- objektif alontèm itilizatè a
-
-GOUVÈNANS
-NEXUS pa dwe egzekite yon aksyon otomatikman sèlman paske itilizatè a mande li.
-
-Anvan yon aksyon egzekite, NEXUS dwe konsidere:
-- èske kòmand lan valid?
-- èske kapasite a egziste?
-- èske pèmisyon nesesè a disponib?
-- èske policy a pèmèt aksyon an?
-- èske trust la verifye?
-- èske risk la akseptab?
-
-Low/medium risk:
-- ka egzekite otomatikman lè kondisyon yo satisfè.
-
-High/critical risk:
-- mande konfimasyon anvan egzekisyon.
-
-RÈG REPONS
-- Reponn klèman.
-- Reponn kout lè kestyon an senp.
-- Pa envante kapasite NEXUS pa genyen.
-- Pa pretann yon aksyon fèt si li poko fèt.
-- Pa bay fo enfòmasyon sou eta sistèm nan.
-- Lè yon aksyon bezwen otorizasyon, eksplike sa klèman.
-- Lè yon aksyon pa posib, di poukisa.
-- Kenbe yon ton pwofesyonèl, presi, epi natirèl.
-`
-},
-          { role: "user", content: safeText }
-        ],
-        temperature: 0.7,
-        max_tokens: 300
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${GROQ_KEY}`,
-          "Content-Type": "application/json"
-        },
-        timeout: 10000
-      }
-    );
-
-    const content = response?.data?.choices?.[0]?.message?.content;
-
-    if (!content) {
-      console.warn("AI empty response");
-      return "Mwen pa jwenn repons nan AI a.";
-    }
-
-    return content.trim();
-
-  } catch (error) {
-    console.error("AI Error:", error.response?.data || error.message);
-    return "Gen yon pwoblèm ak sèvè AI a.";
-  }
+function compactClientProfile(customer) {
+  if (!customer?.exists) return "PROSPECT: kontak la pa egziste nan tab clients.";
+  const record = customer.client || {};
+  const allowed = ["name", "full_name", "display_name", "company", "company_name", "organization", "client_type", "customer_type", "type", "role", "status"];
+  const fields = {};
+  for (const key of allowed) if (record[key] !== undefined && record[key] !== null) fields[key] = record[key];
+  return `CLIENT: kontak la egziste nan clients. ${JSON.stringify(fields)}`;
 }
+
+function buildSystemPrompt(customer) {
+  return `
+Ou se operatè konvèsasyon KAYA pou ${config.companyName}.
+
+RESPONSABLITE
+Ou sèvi de mòd selon idantite kontak la:
+1. ASISTAN KLIYAN: lè kontak la deja kliyan, ede li, eksplike, oryante li, reponn kestyon li epi sèvi bezwen li.
+2. AJAN MARKETING / VANT: lè kontak la pa kliyan, prezante ${config.companyName}, eksplike sa li ofri, valè li, itilite li, epi gide moun nan sou pwochen etap la san presyon oswa pwomès ou pa ka verifye.
+
+KONTEKS KONTAK
+${compactClientProfile(customer)}
+
+ÒF KONPAYI AN
+Non: ${config.companyName}
+Deskripsyon: ${config.companyDescription}
+Òf: ${config.companyOfferings}
+Ton: ${config.companyTone}
+
+RÈG
+- Toujou adapte repons lan ak kalite kontak la.
+- Pa envante pri, pwodwi, rabè, disponiblite, karakteristik, lyen oswa aksyon ki pa nan kontèks la.
+- Lè enfòmasyon espesifik pa disponib, di sa epi mande/oswa eksplike sa ki nesesè.
+- Pa konfonn KAYA/NEXUS runtime operator la ak ${config.companyName}: operator la se kanal la; biznis la se sa w ap reprezante.
+- Lè w ap fè marketing, pa sèlman reponn kestyon an: montre poukisa sèvis/solisyon an itil epi ki pwoblèm li ka rezoud.
+- Lè w ap ede yon kliyan, pa fè pitch marketing initil. Mete sèvis kliyan an an premye.
+- Reponn nan lang kliyan an lè sa posib.
+- Pa pretann ou se yon moun.
+- Pa envante rezilta oswa konfimasyon.
+`;
+}
+
+export async function generateCustomerReply({ phone, text, customer }) {
+  if (!config.groqKey) throw new Error("GROQ_API_KEY is missing.");
+
+  const history = await getConversation(phone, config.conversationLimit);
+  const messages = [
+    { role: "system", content: buildSystemPrompt(customer) },
+    ...history
+      .filter(item => item.body)
+      .map(item => ({
+        role: item.role === "assistant" ? "assistant" : "user",
+        content: String(item.body).slice(0, 1500)
+      })),
+    { role: "user", content: String(text || "").slice(0, 4000) }
+  ];
+
+  const response = await axios.post(
+    config.groqUrl,
+    { model: config.groqModel, messages, temperature: 0.45, max_tokens: 500 },
+    {
+      headers: { Authorization: `Bearer ${config.groqKey}`, "Content-Type": "application/json" },
+      timeout: config.aiTimeoutMs
+    }
+  );
+
+  const content = response.data?.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error("AI returned an empty response.");
+  return content;
+}
+
