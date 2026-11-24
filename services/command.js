@@ -1,85 +1,35 @@
 
-import crypto from "node:crypto";
+// =====================================================
+// NEXUS COMMAND PARSER
+// =====================================================
 
-// ---------------------------------------------------------------------
-// NEXUS OPERATOR COMMAND PARSER
-// Version: 2.1.0
-// Responsibility:
-// - Normalize incoming WhatsApp commands.
-// - Identify supported intents and operations.
-// - Validate command structure.
-// - Build a standardized Nexus command envelope.
-// ---------------------------------------------------------------------
+import crypto from "node:crypto";
 
 const PARSER_VERSION = "2.1.0";
 
-const INTENTS = new Set([
+const NEXUS_INTENTS = new Set([
   "machine",
   "run",
   "install",
-  "update",
   "start"
 ]);
 
-const OPERATIONS = {
-  machine: new Set([
-    "status",
-    "environment",
-    "identity"
-  ]),
-
-  run: new Set([
-    "command",
-    "task"
-  ]),
-
-  install: new Set([
-    "machine",
-    "update",
-    "heartbeat",
-    "listener",
-    "queue",
-    "runtime"
-  ]),
-
-  update: new Set([
-    "engine",
-    "runtime",
-    "machine"
-  ]),
-
-  start: new Set([
-    "media-processing",
-    "heartbeat",
-    "listener",
-    "queue",
-    "supervisor"
-  ])
-};
-
-const DEFAULT_EXECUTION = {
-  state: "queued",
-  phase: "ingress",
-  progress: 0,
-  attempts: 0,
-  max_attempts: 3,
-  priority: "normal",
-  mode: "async",
-  timeout_seconds: 300
-};
-
-// ---------------------------------------------------------------------
-// NORMALIZATION
-// ---------------------------------------------------------------------
+// =====================================================
+// NORMALIZE
+// =====================================================
 
 function normalize(value) {
   return String(value ?? "")
-    .normalize("NFKC")
     .toLowerCase()
     .trim()
-    .replace(/[_\.]+/g, "-")
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " ")
+    .replace(/_/g, "-")
+    .replace(/\./g, "-");
 }
+
+// =====================================================
+// TOKENIZE
+// =====================================================
 
 function tokenize(text) {
   return normalize(text)
@@ -87,52 +37,39 @@ function tokenize(text) {
     .filter(Boolean);
 }
 
-// ---------------------------------------------------------------------
-// VALIDATION
-// ---------------------------------------------------------------------
-
-function validateOperation(intent, operation) {
-  const allowed = OPERATIONS[intent];
-
-  if (!allowed) {
-    return false;
-  }
-
-  return allowed.has(operation);
-}
+// =====================================================
+// INSTALL PARSER
+// =====================================================
 
 function parseInstall(tokens, raw, normalized) {
-  if (tokens.length < 2) {
+
+  /*
+   * install update engine
+   *
+   * intent    = install
+   * operation = install
+   * resource  = update
+   * extension = engine
+   *
+   * install machine status
+   *
+   * intent    = install
+   * operation = install
+   * resource  = machine
+   * extension = status
+   */
+
+  if (tokens.length < 3) {
     return null;
   }
 
-  const resourceTokens = tokens.slice(1);
+  const extension = tokens.at(-1);
 
-  // install heartbeat
-  // install machine status
-  // install update engine
+  const resource = tokens
+    .slice(1, -1)
+    .join(".");
 
-  const extension = resourceTokens.at(-1);
-  const resource = resourceTokens.slice(0, -1).join("-");
-
-  if (!resource) {
-    return null;
-  }
-
-  // For a single-token install target, treat it as the resource.
-  if (resourceTokens.length === 1) {
-    return {
-      intent: "install",
-      operation: "install",
-      target: extension,
-      resource: extension,
-      extension: null,
-      raw,
-      normalized
-    };
-  }
-
-  if (!validateOperation("install", resource)) {
+  if (!resource || !extension) {
     return null;
   }
 
@@ -147,17 +84,18 @@ function parseInstall(tokens, raw, normalized) {
   };
 }
 
-// ---------------------------------------------------------------------
-// COMMAND PARSER
-// ---------------------------------------------------------------------
+// =====================================================
+// UNIVERSAL PARSER
+// =====================================================
 
 export function parseCommand(text) {
+
   if (typeof text !== "string") {
     return null;
   }
 
-  const normalized = normalize(text);
-  const tokens = tokenize(normalized);
+  const cleaned = normalize(text);
+  const tokens = tokenize(cleaned);
 
   if (!tokens.length) {
     return null;
@@ -165,27 +103,43 @@ export function parseCommand(text) {
 
   const intent = tokens[0];
 
-  if (!INTENTS.has(intent)) {
+  // ---------------------------------------------------
+  // VALIDATE INTENT ONLY
+  // ---------------------------------------------------
+
+  if (!NEXUS_INTENTS.has(intent)) {
     return null;
   }
+
+  // ---------------------------------------------------
+  // INSTALL
+  // ---------------------------------------------------
 
   if (intent === "install") {
-    return parseInstall(tokens, text, normalized);
+    return parseInstall(
+      tokens,
+      text,
+      cleaned
+    );
   }
 
-  if (tokens.length < 2) {
+  // ---------------------------------------------------
+  // NORMAL COMMAND
+  // ---------------------------------------------------
+
+  const operation =
+    tokens.length >= 2
+      ? tokens[1]
+      : null;
+
+  if (!operation) {
     return null;
   }
 
-  const operation = tokens[1];
-
-  if (!validateOperation(intent, operation)) {
-    return null;
-  }
-
-  const target = tokens.length > 2
-    ? tokens.slice(2).join("-")
-    : null;
+  const target =
+    tokens.length >= 3
+      ? tokens.slice(2).join("-")
+      : null;
 
   return {
     intent,
@@ -194,15 +148,16 @@ export function parseCommand(text) {
     resource: null,
     extension: null,
     raw: text,
-    normalized
+    normalized: cleaned
   };
 }
 
-// ---------------------------------------------------------------------
-// PERMISSION POLICY
-// ---------------------------------------------------------------------
+// =====================================================
+// PERMISSIONS
+// =====================================================
 
 function resolvePermissions(parsed) {
+
   const permissions = {
     filesystem: false,
     network: false,
@@ -211,11 +166,6 @@ function resolvePermissions(parsed) {
   };
 
   if (parsed.intent === "install") {
-    permissions.filesystem = true;
-    permissions.network = true;
-  }
-
-  if (parsed.intent === "update") {
     permissions.filesystem = true;
     permissions.network = true;
   }
@@ -230,62 +180,54 @@ function resolvePermissions(parsed) {
   return permissions;
 }
 
-// ---------------------------------------------------------------------
-// EXECUTION POLICY
-// ---------------------------------------------------------------------
+// =====================================================
+// EXECUTION
+// =====================================================
 
 function resolveExecution(parsed) {
-  const execution = { ...DEFAULT_EXECUTION };
 
-  if (parsed.intent === "install") {
+  const execution = {
+    state: "queued",
+    phase: "ingress",
+    progress: 0,
+    attempts: 0,
+    max_attempts: 3,
+    priority: "normal",
+    mode: "async",
+    timeout_seconds: 300
+  };
+
+  if (
+    parsed.intent === "install" ||
+    parsed.intent === "run"
+  ) {
     execution.timeout_seconds = 1800;
-    execution.max_attempts = 2;
-    execution.priority = "high";
-  }
-
-  if (parsed.intent === "update") {
-    execution.timeout_seconds = 1800;
-    execution.max_attempts = 2;
-    execution.priority = "high";
-  }
-
-  if (parsed.intent === "run") {
-    execution.timeout_seconds = 900;
   }
 
   return execution;
 }
 
-// ---------------------------------------------------------------------
-// NEXUS COMMAND ENVELOPE
-// ---------------------------------------------------------------------
+// =====================================================
+// BUILD NEXUS COMMAND
+// =====================================================
 
 export function buildNexusCommand(parsed) {
+
   if (!parsed || typeof parsed !== "object") {
     return null;
   }
 
-  const {
-    intent,
-    operation,
-    target,
-    raw,
-    normalized
-  } = parsed;
-
-  if (!INTENTS.has(intent)) {
+  if (
+    !parsed.intent ||
+    !NEXUS_INTENTS.has(parsed.intent)
+  ) {
     return null;
   }
 
-  if (!operation) {
-    return null;
-  }
-
-  if (intent !== "install" && !validateOperation(intent, operation)) {
-    return null;
-  }
-
-  if (intent === "install" && operation !== "install") {
+  if (
+    !parsed.operation ||
+    String(parsed.operation).trim() === ""
+  ) {
     return null;
   }
 
@@ -295,86 +237,129 @@ export function buildNexusCommand(parsed) {
   const correlationId = crypto.randomUUID();
 
   return {
+
     command_id: commandId,
+
     execution_id: null,
+
     correlation_id: correlationId,
 
     version: "2.1.0",
 
     created_at: now,
+
     updated_at: now,
 
     status: "pending",
 
-    intent,
-    operation,
-    target: target || null,
+    intent: parsed.intent,
+
+    operation: parsed.operation,
+
+    target: parsed.target || null,
 
     execution: resolveExecution(parsed),
 
     orchestration: {
+
       origin: "whatsapp",
+
       source: "kaya-nexus-operator",
+
       transport: "supabase",
+
       runtime: "elmidor-nexus",
+
       dispatch_strategy: "intent-contract",
+
       recovery_strategy: "retry"
     },
 
     permissions: resolvePermissions(parsed),
 
     payload: {
-      raw: raw || null,
-      normalized: normalized || null,
+
+      raw: parsed.raw || null,
+
+      normalized: parsed.normalized || null,
 
       arguments: {
-        operation,
-        target: target || null,
+
+        operation: parsed.operation,
+
+        target: parsed.target || null,
+
         resource: parsed.resource || null,
+
         extension: parsed.extension || null
       },
 
       metadata: {
+
         parser: "nexus-operator-command-parser",
+
         parser_version: PARSER_VERSION
       }
     },
 
     result: {
+
       status: null,
+
       code: null,
+
       message: null,
+
       data: null,
+
       artifacts: []
     },
 
     state: {
+
       current: "queued",
+
       previous: null,
+
       history: [
+
         {
           state: "queued",
+
           timestamp: now
         }
+
       ]
     },
 
     telemetry: {
+
       heartbeat_at: null,
+
       started_at: null,
+
       completed_at: null,
+
       duration_ms: null,
+
       runtime_id: null,
+
       worker_id: null,
+
       machine_id: null
     },
 
     notes: [
+
       {
         level: "info",
-        message: "Command accepted into orchestration queue.",
+
+        message:
+          "Command accepted into orchestration queue.",
+
         timestamp: now
       }
+
     ]
   };
 }
